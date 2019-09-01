@@ -1,0 +1,18 @@
+[package]
+name = "rust_radio"
+version = "0.1.0"
+authors = ["johnstanford"]
+
+[dependencies]
+byteorder = "1.2.6"
+clap = "2.33.0"
+colored = "1.8.0"
+dirs = "2.0.1"
+num-complex = "0.2.3"
+rustfft = "3.0.0"
+rayon = "1.0.3"
+
+serde = { version = "1.0.60", features = ["derive"] }
+serde_derive = "1.0"
+serde_json = "1.0.39"
+

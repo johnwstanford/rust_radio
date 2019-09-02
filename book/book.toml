@@ -1,0 +1,5 @@
+[book]
+authors = ["John Stanford"]
+multilingual = false
+src = "src"
+title = "Rust Radio"

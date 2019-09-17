@@ -7,12 +7,12 @@ use std::f64::consts;
 use self::rustfft::{FFTplanner, FFT};
 use self::rustfft::num_complex::Complex;
 use self::rustfft::num_traits::Zero;
-use ::DigSigProcErr;
 
 pub struct Acquisition {
 	pub fs:f64,
 	pub test_statistic_threshold:f64,
 	pub doppler_freqs:Vec<i16>,
+	buffer:Vec<Complex<f64>>,
 	len_fft:usize,
 	fft:Arc<dyn FFT<f64>>,
 	pub local_code_freq_domain:Vec<Complex<f64>>,
@@ -30,66 +30,66 @@ pub struct AcquisitionResult {
 
 impl Acquisition {
 
-	pub fn test<T: Iterator<Item = (Complex<f64>, usize)>>(&mut self, signal:&mut T) -> Result<AcquisitionResult, DigSigProcErr> {
-		let x_in:Vec<Complex<f64>> = signal.take(self.len_fft).map(|(c, _)| c).collect();
-		if x_in.len() < self.len_fft { return Err(DigSigProcErr::NoSourceData) }
+	pub fn apply(&mut self, sample:(Complex<f64>, usize)) -> Option<AcquisitionResult> {
+		self.buffer.push(sample.0);
+		if self.buffer.len() >= self.len_fft {
+			// We've got a full buffer, so try acquiring an SV
 
-		let input_power_total:f64 = (&x_in).into_iter().map(|c| c.re*c.re + c.im*c.im).sum();
-		let input_power_avg:f64 = input_power_total / (self.len_fft as f64);
+			let input_power_total:f64 = self.buffer.iter().map(|c| c.re*c.re + c.im*c.im).sum();
+			let input_power_avg:f64 = input_power_total / (self.len_fft as f64);
 
-		let mut best_match = AcquisitionResult{ doppler_hz: 0, code_phase: 0, test_statistic: 0.0 };
-		for freq in self.doppler_freqs.iter() {
-			// Wipe the carrier off the input signal
-			let phase_step_rad:f64 = (-2.0 * consts::PI * (*freq as f64)) / self.fs;
-			
-			/* This way and the following way both work, but the following one is used to identically match the Scala code.
-			TODO: compare performance of both at some point when the rest of the system works
-			let dphase:Complex<f64> = Complex{ re: phase_step_rad.cos(), im: phase_step_rad.sin() };
-			let mut doppler_wiped_time_domain:Vec<Complex<f64>> = (&x_in)
-				.into_iter()
-				.scan(Complex{re:1.0, im:0.0}, |sum, x| {
-					*sum *= dphase;
-					Some(x * (*sum))
-				})
-				.collect();*/
-			let mut doppler_wiped_time_domain:Vec<Complex<f64>> = (0..(x_in.len()))
-				.map(|idx| {
-					let phase = phase_step_rad * (idx as f64);
-					x_in[idx] * Complex{ re: phase.cos(), im: phase.sin() }
-				}).collect();
+			let mut best_match = AcquisitionResult{ doppler_hz: 0, code_phase: 0, test_statistic: 0.0 };
 
-			// Run the forward FFT
-			self.fft.process(&mut doppler_wiped_time_domain, &mut self.fft_out);
+			// Try every frequency and update best_match every time we find a new best
+			for freq in self.doppler_freqs.iter() {
+				// Wipe the carrier off the input signal
+				let phase_step_rad:f64 = (-2.0 * consts::PI * (*freq as f64)) / self.fs;			
+				let mut doppler_wiped_time_domain:Vec<Complex<f64>> = (0..(self.buffer.len()))
+					.map(|idx| {
+						let phase = phase_step_rad * (idx as f64);
+						self.buffer[idx] * Complex{ re: phase.cos(), im: phase.sin() }
+					}).collect();
 
-			// Perform multiplication in the freq domain, which is convolution in the time domain
-			let mut convolution_freq_domain:Vec<Complex<f64>> = (&self.fft_out).into_iter()
-				.zip((&self.local_code_freq_domain).into_iter())
-				.map( |(a,b)| a*b )
-				.collect();
+				// Run the forward FFT
+				self.fft.process(&mut doppler_wiped_time_domain, &mut self.fft_out);
 
-			// Run the inverse FFT to get correlation in the time domain
-			self.ifft.process(&mut convolution_freq_domain, &mut self.ifft_out);
-			self.ifft_out = self.ifft_out.iter().map(|c| c / (self.len_fft as f64)).collect();
+				// Perform multiplication in the freq domain, which is convolution in the time domain
+				let mut convolution_freq_domain:Vec<Complex<f64>> = (&self.fft_out).into_iter()
+					.zip((&self.local_code_freq_domain).into_iter())
+					.map( |(a,b)| a*b )
+					.collect();
 
-			// Normalize, enumerate, and sort the magnitudes
-			let mut magnitudes:Vec<(usize, f64)> = (&self.ifft_out).into_iter()
-				.map(|c| (c.re*c.re + c.im*c.im))
-				.enumerate().collect();
-			magnitudes.sort_by(|a,b| b.1.partial_cmp(&a.1).unwrap() );
+				// Run the inverse FFT to get correlation in the time domain
+				self.ifft.process(&mut convolution_freq_domain, &mut self.ifft_out);
+				self.ifft_out = self.ifft_out.iter().map(|c| c / (self.len_fft as f64)).collect();
 
-			// Compare the best result from this iteration to the overall best result
-			let (best_idx_this_doppler, best_test_stat_raw_this_doppler) = magnitudes[0];
-			let best_test_stat_this_doppler:f64 = best_test_stat_raw_this_doppler / (input_power_avg * (self.len_fft as f64) * (self.len_fft as f64));
-			if best_match.test_statistic < best_test_stat_this_doppler {
-				best_match.doppler_hz = *freq;
-				best_match.code_phase = best_idx_this_doppler;
-				best_match.test_statistic = best_test_stat_this_doppler;
+				// Normalize, enumerate, and sort the magnitudes
+				let mut magnitudes:Vec<(usize, f64)> = (&self.ifft_out).into_iter()
+					.map(|c| (c.re*c.re + c.im*c.im))
+					.enumerate().collect();
+				magnitudes.sort_by(|a,b| b.1.partial_cmp(&a.1).unwrap() );
+
+				// Compare the best result from this iteration to the overall best result
+				let (best_idx_this_doppler, best_test_stat_raw_this_doppler) = magnitudes[0];
+				let best_test_stat_this_doppler:f64 = best_test_stat_raw_this_doppler / (input_power_avg * (self.len_fft as f64) * (self.len_fft as f64));
+				if best_match.test_statistic < best_test_stat_this_doppler {
+					best_match.doppler_hz = *freq;
+					best_match.code_phase = best_idx_this_doppler;
+					best_match.test_statistic = best_test_stat_this_doppler;
+				}
 			}
-		}
 
-		// Return the best match if it meets the threshold
-		if best_match.test_statistic > self.test_statistic_threshold { Ok(best_match) }
-		else { Err(DigSigProcErr::NoAcquisition) }
+			// Clear the buffer for next time
+			self.buffer.clear();
+
+			// Return the best match if it meets the threshold
+			if best_match.test_statistic > self.test_statistic_threshold { Some(best_match) }
+			else { None }
+
+		} else {
+			// Buffer isn't full yet, so there's no result to return
+			None
+		}
 	}
 
 }
@@ -114,5 +114,7 @@ pub fn make_acquisition(symbol:&Vec<i8>, fs:f64, doppler_step:usize, doppler_max
 	let mut ifft_out: Vec<Complex<f64>> = vec![Complex::zero(); len_fft];
 	ifft.process(&mut fft_out, &mut ifft_out);
 
-	Acquisition{ fs, test_statistic_threshold, doppler_freqs, len_fft, fft, local_code_freq_domain, fft_out, ifft, ifft_out }
+	let buffer:Vec<Complex<f64>> = vec![];
+
+	Acquisition{ fs, test_statistic_threshold, doppler_freqs, buffer, len_fft, fft, local_code_freq_domain, fft_out, ifft, ifft_out }
 }

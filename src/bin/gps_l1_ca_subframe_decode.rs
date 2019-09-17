@@ -8,7 +8,6 @@ extern crate serde;
 
 use clap::{Arg, App};
 use colored::*;
-use rust_radio::DigSigProcErr;
 use rust_radio::io;
 use rust_radio::gnss::{acquisition, tracking};
 use rust_radio::gnss::gps::l1_ca_signal;
@@ -16,7 +15,7 @@ use rust_radio::gnss::telemetry_decode::gps;
 use rust_radio::utils;
 use serde::{Serialize, Deserialize};
 
-const DEFAULT_ACQ_RETRIES:usize = 100;
+const DEFAULT_ACQ_SAMPLES_TO_TRY:usize = 200_000;
 
 #[derive(Serialize, Deserialize, Debug)]
 struct Result {
@@ -39,9 +38,9 @@ fn main() {
 			.short("t").long("type")
 			.takes_value(true)
 			.possible_value("i16"))
-		.arg(Arg::with_name("acq_retries")
-			.short("r").long("acq_retries")
-			.help("Defaults to 100")
+		.arg(Arg::with_name("acq_samples_to_try")
+			.short("a").long("acq_samples_to_try")
+			.help("Defaults to 2e5")
 			.takes_value(true))
 		.arg(Arg::with_name("sample_rate_sps")
 			.short("s").long("sample_rate_sps")
@@ -50,9 +49,9 @@ fn main() {
 
 	let fname:&str = matches.value_of("filename").unwrap();
 	let fs = matches.value_of("sample_rate_sps").unwrap().parse().unwrap();
-	let acq_retries:usize = match matches.value_of("acq_retries") {
+	let acq_samples_to_try:usize = match matches.value_of("acq_samples_to_try") {
 		Some(n) => n.parse().unwrap(),
-		None => DEFAULT_ACQ_RETRIES,
+		None => DEFAULT_ACQ_SAMPLES_TO_TRY,
 	};
 
 	eprintln!("Decoding {} at {} [samples/sec]", &fname, &fs);
@@ -63,50 +62,51 @@ fn main() {
 		let mut signal = io::file_source_i16_complex(&fname);
 		let symbol:Vec<i8> = l1_ca_signal::prn_int_sampled(prn, fs);
 		let mut acq = acquisition::make_acquisition(&symbol, fs, 50, 10000, 0.008);
-		let mut acq_attempts_so_far:usize = 1;
+		let mut acq_samples_so_far:usize = 1;
 
-		loop {
-			match acq.test(&mut signal) {
-				Ok(r) => {
-					eprintln!("{}", format!("  PRN {}: Acquired at {} [Hz] doppler, {} test statistic, attempting to track", prn, r.doppler_hz, r.test_statistic).green());
+		while let Some(x) = signal.next() {
+			acq_samples_so_far += 1;
 
-					signal.drop(r.code_phase);
-					let mut trk = tracking::new_default_tracker(prn, r.doppler_hz as f64, fs, 40.0, 4.0, &mut signal);
-					match gps::get_subframes(&mut trk) {
-						Ok(subframes) => {
-							let mut nav_data:Vec<(String, gps::l1_ca_subframe::Subframe, usize)> = vec![];
-							for (subframe, start_idx) in subframes {
-								if let Ok(sf) = gps::l1_ca_subframe::decode(subframe) {
-									let bytes:Vec<String> = utils::bool_slice_to_byte_vec(&subframe, true).iter().map(|b| format!("{:02X}", b)).collect();
-									let subframe_str = format!("{:?}", sf).blue();
-									eprintln!("    {}", subframe_str);
-									eprintln!("    Hex: {}", bytes.join(""));
+			if let Some(r) = acq.apply(x) {
+				eprintln!("{}", format!("  PRN {}: Acquired at {} [Hz] doppler, {} test statistic, attempting to track", prn, r.doppler_hz, r.test_statistic).green());
 
-									nav_data.push((bytes.join(""), sf, start_idx));
-								}
-								else { 
-									eprintln!("    Invalid subframe");
-								}
+				signal.drop(r.code_phase);
+				let mut trk = tracking::new_default_tracker(prn, r.doppler_hz as f64, fs, 40.0, 4.0, &mut signal);
+				match gps::get_subframes(&mut trk) {
+					Ok(subframes) => {
+						let mut nav_data:Vec<(String, gps::l1_ca_subframe::Subframe, usize)> = vec![];
+						for (subframe, start_idx) in subframes {
+							if let Ok(sf) = gps::l1_ca_subframe::decode(subframe) {
+								let bytes:Vec<String> = utils::bool_slice_to_byte_vec(&subframe, true).iter().map(|b| format!("{:02X}", b)).collect();
+								let subframe_str = format!("{:?}", sf).blue();
+								eprintln!("    {}", subframe_str);
+								eprintln!("    Hex: {}", bytes.join(""));
+
+								nav_data.push((bytes.join(""), sf, start_idx));
 							}
+							else { 
+								eprintln!("    Invalid subframe");
+							}
+						}
 
-							let this_result = Result{ prn, acq_doppler_hz: r.doppler_hz, acq_test_statistic: r.test_statistic, final_doppler_hz: trk.carrier_freq_hz(), nav_data };
-							all_results.push(this_result);
-						},
-						Err(e) => { 
-							if acq_attempts_so_far > acq_retries { break; }
-							eprintln!("{}", format!("  Loss of lock due to {:?}, {} of {}", e, acq_attempts_so_far, acq_retries).red());
-							acq_attempts_so_far += 1;
-						},
-					}
-				},
-				Err(DigSigProcErr::NoSourceData) => break,
-				Err(e) => { 
-					if acq_attempts_so_far > acq_retries { break; }
-					eprintln!("{}", format!("  No acquisition due to {:?}, {} of {}", e, acq_attempts_so_far, acq_retries).red());
-					acq_attempts_so_far += 1;
-				},
+						let this_result = Result{ prn, acq_doppler_hz: r.doppler_hz, acq_test_statistic: r.test_statistic, final_doppler_hz: trk.carrier_freq_hz(), nav_data };
+						all_results.push(this_result);
+					},
+					Err(e) => { 
+						if acq_samples_so_far > acq_samples_to_try { break; }
+						eprintln!("{}", format!("  Loss of lock due to {:?}, {} of {}", e, acq_samples_so_far, acq_samples_to_try).red());
+					},
+				}
+			}
+
+			if acq_samples_so_far > acq_samples_to_try { 
+				break; 
+			}
+			if acq_samples_so_far%2000 == 0 {
+				eprintln!("{}", format!("  No acquisition, {} of {} samples", acq_samples_so_far, acq_samples_to_try).red());
 			}
 		}
+
 	}
 
 	println!("{}", serde_json::to_string(&all_results).unwrap());

@@ -67,7 +67,7 @@ fn main() {
 		while let Some(x) = signal.next() {
 			acq_samples_so_far += 1;
 
-			if let Some(r) = acq.apply(x) {
+			if let Some(r) = acq.apply(x.0) {
 				eprintln!("{}", format!("  PRN {}: Acquired at {} [Hz] doppler, {} test statistic, attempting to track", prn, r.doppler_hz, r.test_statistic).green());
 
 				signal.drop(r.code_phase);

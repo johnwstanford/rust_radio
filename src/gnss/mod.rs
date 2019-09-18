@@ -1,7 +1,10 @@
 
-
+/// This module contains functionality related to acquiring GNSS signals common to all systems
 pub mod acquisition;
+
+/// This module contains functionality related to tracking signals after acquisition
 pub mod tracking;
+
 pub mod telemetry_decode;
 
 pub mod gps {

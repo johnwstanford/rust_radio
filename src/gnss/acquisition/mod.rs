@@ -30,8 +30,8 @@ pub struct AcquisitionResult {
 
 impl Acquisition {
 
-	pub fn apply(&mut self, sample:(Complex<f64>, usize)) -> Option<AcquisitionResult> {
-		self.buffer.push(sample.0);
+	pub fn apply(&mut self, sample:Complex<f64>) -> Option<AcquisitionResult> {
+		self.buffer.push(sample);
 		if self.buffer.len() >= self.len_fft {
 			// We've got a full buffer, so try acquiring an SV
 

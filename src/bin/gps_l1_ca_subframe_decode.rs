@@ -68,17 +68,26 @@ fn main() {
 			acq_samples_so_far += 1;
 
 			if let Some(r) = acq.apply(x.0) {
+				// We've acquired a satellite and we'll stay in this block until we run out of data or loose the lock
 				eprintln!("{}", format!("  PRN {}: Acquired at {} [Hz] doppler, {} test statistic, attempting to track", prn, r.doppler_hz, r.test_statistic).green());
 
+				// Drop the number of samples required to get us to the start of the next PRN symbol
 				signal.drop(r.code_phase);
 				
+				// Create a new tracker to track the signal we just acquired
 				let mut trk = tracking::new_default_tracker(prn, r.doppler_hz as f64, fs, 40.0, 4.0, &mut signal);
+
+				// Create a GPS L1 C/A telemetry decoder and a vector to store the decoded subframes
 				let mut tlm = gps::TelemetryDecoder::new();
 				let mut nav_data:Vec<(String, gps::l1_ca_subframe::Subframe, usize)> = vec![];
-				while let Ok(prompt) = trk.next() {
-					match tlm.apply((prompt.0.re > 0.0, prompt.1)) {
+
+				while let Ok((prompt, prompt_idx)) = trk.next() {
+					// While the tracker still has a lock and keeps producing prompt values, pass them into the telemetry decoder and match on the result
+					match tlm.apply((prompt.re > 0.0, prompt_idx)) {
 						Ok(Some((subframe, start_idx))) => {
+							// The telemetry decoder successfully decoded a subframe, but we just have a sequence of bits right now.  We need to interpret them.
 							if let Ok(sf) = gps::l1_ca_subframe::decode(subframe) {
+								// The bits of this subframe have been successfully interpreted.  Output the results to STDERR and store them in nav_data
 								let bytes:Vec<String> = utils::bool_slice_to_byte_vec(&subframe, true).iter().map(|b| format!("{:02X}", b)).collect();
 								let subframe_str = format!("{:?}", sf).blue();
 								eprintln!("    {}", subframe_str);
@@ -90,14 +99,19 @@ fn main() {
 								eprintln!("    Invalid subframe");
 							}
 						},
-						Ok(None) => {},
+						Ok(None) => {
+							// The telemetry decoder hasn't produced a new subframe yet, but everything is still okay, so do nothing
+						},
 						Err(e) => {
+							// The telemetry decoder somehow found invalid data, so report a loss of lock and break out of this inner while loop
 							if acq_samples_so_far > acq_samples_to_try { break; }
 							eprintln!("{}", format!("  Loss of lock due to {:?}, {} of {}", e, acq_samples_so_far, acq_samples_to_try).red());
 							break;
 						}
 					}
 				}
+
+				// Store the results of this acquisition.  At a minimum, we have the acquisition itself to report.  We may or may not also have subframes.
 				let this_result = Result{ prn, acq_doppler_hz: r.doppler_hz, acq_test_statistic: r.test_statistic, final_doppler_hz: trk.carrier_freq_hz(), nav_data };
 				all_results.push(this_result);
 			}
@@ -112,5 +126,6 @@ fn main() {
 
 	}
 
+	// This is the only output to STDOUT.  This allows you to pipe the results to a JSON file, but still see the status updates through STDERR as the code runs.
 	println!("{}", serde_json::to_string(&all_results).unwrap());
 }

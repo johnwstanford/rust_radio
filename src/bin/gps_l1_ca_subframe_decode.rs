@@ -71,11 +71,13 @@ fn main() {
 				eprintln!("{}", format!("  PRN {}: Acquired at {} [Hz] doppler, {} test statistic, attempting to track", prn, r.doppler_hz, r.test_statistic).green());
 
 				signal.drop(r.code_phase);
+				
 				let mut trk = tracking::new_default_tracker(prn, r.doppler_hz as f64, fs, 40.0, 4.0, &mut signal);
-				match gps::get_subframes(&mut trk) {
-					Ok(subframes) => {
-						let mut nav_data:Vec<(String, gps::l1_ca_subframe::Subframe, usize)> = vec![];
-						for (subframe, start_idx) in subframes {
+				let mut tlm = gps::TelemetryDecoder::new();
+				let mut nav_data:Vec<(String, gps::l1_ca_subframe::Subframe, usize)> = vec![];
+				while let Ok(prompt) = trk.next() {
+					match tlm.apply((prompt.0.re > 0.0, prompt.1)) {
+						Ok(Some((subframe, start_idx))) => {
 							if let Ok(sf) = gps::l1_ca_subframe::decode(subframe) {
 								let bytes:Vec<String> = utils::bool_slice_to_byte_vec(&subframe, true).iter().map(|b| format!("{:02X}", b)).collect();
 								let subframe_str = format!("{:?}", sf).blue();
@@ -87,16 +89,17 @@ fn main() {
 							else { 
 								eprintln!("    Invalid subframe");
 							}
+						},
+						Ok(None) => {},
+						Err(e) => {
+							if acq_samples_so_far > acq_samples_to_try { break; }
+							eprintln!("{}", format!("  Loss of lock due to {:?}, {} of {}", e, acq_samples_so_far, acq_samples_to_try).red());
+							break;
 						}
-
-						let this_result = Result{ prn, acq_doppler_hz: r.doppler_hz, acq_test_statistic: r.test_statistic, final_doppler_hz: trk.carrier_freq_hz(), nav_data };
-						all_results.push(this_result);
-					},
-					Err(e) => { 
-						if acq_samples_so_far > acq_samples_to_try { break; }
-						eprintln!("{}", format!("  Loss of lock due to {:?}, {} of {}", e, acq_samples_so_far, acq_samples_to_try).red());
-					},
+					}
 				}
+				let this_result = Result{ prn, acq_doppler_hz: r.doppler_hz, acq_test_statistic: r.test_statistic, final_doppler_hz: trk.carrier_freq_hz(), nav_data };
+				all_results.push(this_result);
 			}
 
 			if acq_samples_so_far > acq_samples_to_try { 

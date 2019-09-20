@@ -4,8 +4,6 @@
 extern crate num_complex;
 
 use std::collections::VecDeque;
-use self::num_complex::Complex;
-use ::gnss::tracking;
 use ::DigSigProcErr;
 
 /*	GPS Telemetry Decoding Pipeline:
@@ -59,49 +57,77 @@ fn data_recover(subframe:[bool; SUBFRAME_SIZE_W_PARITY_BITS]) -> Result<[bool; S
 	Ok(ans)
 }
 
-pub fn get_subframes<T:Iterator<Item=(Complex<f64>, usize)>>(trk:&mut tracking::Tracking<T>) -> Result<Vec<([bool; SUBFRAME_SIZE_DATA_ONLY_BITS], usize)>, DigSigProcErr> {
+pub struct TelemetryDecoder {
+	detector: preamble_detector::PreambleDetector,
+	detection_buffer:VecDeque<(bool, usize)>,
+	state: TelemetryDecoderState,
+}
 
-	let mut detector = preamble_detector::new_preamble_detector();
-	let mut detection_buffer:VecDeque<(bool, usize)> = VecDeque::new();
+impl TelemetryDecoder {
 
-	// Determine subframe locations
-	while let Ok((prompt, prompt_idx)) = trk.next() {
-		let b:bool = prompt.re > 0.0;
-		detector.apply(b);
-		detection_buffer.push_back((b, prompt_idx));
-		if detector.get_result().is_ok() { break; }
+	pub fn new() -> TelemetryDecoder {
+		TelemetryDecoder{ detector: preamble_detector::new_preamble_detector(), 
+						  detection_buffer: VecDeque::new(),
+						  state: TelemetryDecoderState::LookingForPreamble }
 	}
 
-	match (detector.get_result(), detector.is_inverse_sense()) {
-		(Ok(bit_locations), Ok(is_inverse_sense)) => {
-			// Drop bits to get to the start of the next subframe
-			for _ in 0..bit_locations { detection_buffer.pop_front(); }
-			let mut ans:Vec<([bool; SUBFRAME_SIZE_DATA_ONLY_BITS], usize)> = vec![];
+	/// Takes a prompt tuple in the form of a boolean representing a bit and a usize representing the sample index where this symbol started
+	/// Returns a Result that is Err is some kind of invalid telemetry data was detected.  If this method returns Ok, it'll be an Option.
+	/// If the Option is None, it means that the next subframe isn't ready yet.  If it's Some, it'll be a tuple of an array with the bits
+	/// in the subframe and a usize with the sample index where the subframe starts
+	pub fn apply(&mut self, prompt:(bool, usize)) -> Result<Option<([bool; SUBFRAME_SIZE_DATA_ONLY_BITS], usize)>, DigSigProcErr> {
+		match self.state {
+			TelemetryDecoderState::LookingForPreamble => {
+				//let b:bool = prompt.re > 0.0;
+				self.detector.apply(prompt.0);
+				self.detection_buffer.push_back(prompt);
+				match (self.detector.get_result(), self.detector.is_inverse_sense()) {
+					(Ok(bit_locations), Ok(is_inverse_sense)) => {
+						// Preamble detected
+						self.state = TelemetryDecoderState::DecodingSubframes{ is_inverse_sense };
 
-			// Keep reading from the tracker until it runs out
-			while let Ok((prompt, prompt_idx)) = trk.next() {
-				detection_buffer.push_back((prompt.re > 0.0, prompt_idx));
-
-				while detection_buffer.len() >= SUBFRAME_SIZE_W_PARITY_BITS {
-					let mut next_subframe = [false; SUBFRAME_SIZE_W_PARITY_BITS];
-					if let Some((b, first_idx)) = detection_buffer.pop_front() {
-						next_subframe[0] = b ^ is_inverse_sense;
-						for i in 1..SUBFRAME_SIZE_W_PARITY_BITS {
-							match detection_buffer.pop_front() {
-								Some((b, _)) => next_subframe[i] = b ^ is_inverse_sense,
-								None => return Ok(ans),
-							}
-						}
-						ans.push((data_recover(next_subframe)?, first_idx));			
-					} else { return Ok(ans) }
+						// Drop bits to get to the start of the next subframe
+						for _ in 0..bit_locations { self.detection_buffer.pop_front(); }
+						
+						// TODO account for the fact that there might be a few subframes available in the buffer; for now, just return it next method call
+						Ok(None)
+					},
+					(_, _) => {
+						// Preamble not yet detected, don't change state
+						// TODO: panic or return Err if one if Ok(_) but not the other
+						Ok(None)
+					}
 				}
+			},
+			TelemetryDecoderState::DecodingSubframes{ is_inverse_sense } => {
+				self.detection_buffer.push_back(prompt);
 
-			}
+				if self.detection_buffer.len() >= SUBFRAME_SIZE_W_PARITY_BITS {
+					let mut next_subframe = [false; SUBFRAME_SIZE_W_PARITY_BITS];
+					match self.detection_buffer.pop_front() {
+						Some((b, first_idx)) => {
+							next_subframe[0] = b ^ is_inverse_sense;
+							for i in 1..SUBFRAME_SIZE_W_PARITY_BITS {
+								match self.detection_buffer.pop_front() {
+									Some((b, _)) => next_subframe[i] = b ^ is_inverse_sense,
+									None => return Err(DigSigProcErr::InvalidTelemetryData),
+								}
+							}
+							Ok(Some((data_recover(next_subframe)?, first_idx)))			
+						},
+						None => {
+							Err(DigSigProcErr::InvalidTelemetryData)
+						}
 
-			Ok(ans)
+					}
+				} else { Ok(None) }
 
-		},
-		(_, _) => Err(DigSigProcErr::InvalidTelemetryData),
+			},
+		}
 	}
+}
 
+enum TelemetryDecoderState {
+	LookingForPreamble,
+	DecodingSubframes{ is_inverse_sense:bool },
 }

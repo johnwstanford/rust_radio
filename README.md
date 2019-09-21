@@ -25,3 +25,20 @@ Run `gps_l1_ca_subframe_decode` and redirect stdout to a JSON file.
 ```./gps_l1_ca_subframe_decode --filename ../../data/1562782171_1575.42Mhz_2e6sps.dat --sample_rate_sps 2e6 > 1562782171_1575.42Mhz_2e6sps.json``` 
 
 The binary needs to know the sample rate of the file (2.0 Msps in this case) and expects raw IQ samples packed as 16-bit signed integers (4 bytes per sample).  There's some sample data included in the repo that was collected using an Ettus Research USRP B205mini-i.  As the binary runs, you'll see lines scrolling with information.  Acquisition is shown in green text and red indicates failed acquisition or loss of lock.  When a navigation subframe is successfully decoded, it's shown in blue text and the hexadecimal bytes that make it up are shown in white text.  However, none of this shows up to the final JSON file because it's all output to stderr.  The only thing output the stdout is a final JSON array consisting of all the subframes decoded.
+
+# TODO List
+
+* GNSS Functionality
+	* Add support for non-GPS signals (Galileo, GLONASS, etc)
+	* Finish nav message decoding for GPS L1 C/A
+	* Finish translating nav messages into a time/position fix
+	* Add support for SBAS system (WAAS, etc)
+	* Add support for GPS signals other than L1 C/A
+
+* Other DSP Functionality
+	* Demodulate VOR signals
+	* Demodulate basic AM/FM radio signals
+	* Demodulate ADS-B signals
+	* Export audio signals to WAV format
+
+* Start mdBook Documentation

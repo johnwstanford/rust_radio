@@ -14,11 +14,19 @@ pub struct CommonFields {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum Subframe {
-	Subframe1{common:CommonFields, week_number:u16},
+	Subframe1{common:CommonFields, week_number:u16, code_on_l2:CodeOnL2, ura_index:u8, sv_health:u8, iodc:u16},
 	Subframe2{common:CommonFields, iode:u8, crs:f64, dn:f64, m0:f64, cuc:f64, e:f64, cus:f64, sqrt_a:f64, t_oe:f64, fit_interval:bool, aodo:u8 },
 	Subframe3{common:CommonFields, cic:f64, omega0:f64, cis:f64, i0:f64, crc:f64, omega:f64, omega_dot:f64, iode:u8, idot:f64},
 	Subframe4{common:CommonFields},
 	Subframe5{common:CommonFields},
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[allow(non_camel_case_types)]
+pub enum CodeOnL2 {
+	Reserved,
+	P_Code,
+	CA_Code,
 }
 
 pub fn decode(bits:[bool; 240]) -> Result<Subframe, DigSigProcErr> {
@@ -29,7 +37,17 @@ pub fn decode(bits:[bool; 240]) -> Result<Subframe, DigSigProcErr> {
 	match subframe_id {
 		1 => {
 			let week_number:u16 = utils::bool_slice_to_u16(&bits[48..58]);
-			Ok(Subframe::Subframe1{ common, week_number })
+			let code_on_l2 = match (bits[58], bits[59]) {
+				(false, false) => CodeOnL2::Reserved,
+				(false, true ) => CodeOnL2::P_Code,
+				(true,  false) => CodeOnL2::CA_Code,
+				(true,  true ) => return Err(DigSigProcErr::InvalidTelemetryData),
+			};
+			let ura_index:u8 = utils::bool_slice_to_u8(&bits[60..64]);
+			let sv_health:u8 = utils::bool_slice_to_u8(&bits[64..70]);
+			let iodc:u16     = utils::bool_slice_to_u16(&[&bits[70..72], &bits[168..176]].concat());
+
+			Ok(Subframe::Subframe1{ common, week_number, code_on_l2, ura_index, sv_health, iodc })
 		},
 		2 => {
 			let iode:u8    =  utils::bool_slice_to_u8( &bits[ 48..56 ]);
@@ -52,9 +70,9 @@ pub fn decode(bits:[bool; 240]) -> Result<Subframe, DigSigProcErr> {
 			let i0:f64        = (utils::bool_slice_to_i32(&bits[112..144]) as f64) * (2.0_f64).powi(-31);
 			let crc:f64       = (utils::bool_slice_to_i16(&bits[144..160]) as f64) * (2.0_f64).powi(-5);
 			let omega:f64     = (utils::bool_slice_to_i32(&bits[160..182]) as f64) * (2.0_f64).powi(-31);
-			let omega_dot:f64 = (utils::bool_slice_to_i24(&bits[182..206]) as f64) * (2.0_f64).powi(-43);
+			let omega_dot:f64 = (utils::bool_slice_to_i32(&bits[182..206]) as f64) * (2.0_f64).powi(-43);
 			let iode:u8       =  utils::bool_slice_to_u8( &bits[206..214]);
-			let idot:f64      = (utils::bool_slice_to_i14(&bits[214..228]) as f64) * (2.0_f64).powi(-43);
+			let idot:f64      = (utils::bool_slice_to_i16(&bits[214..228]) as f64) * (2.0_f64).powi(-43);
 			Ok(Subframe::Subframe3{ common, cic, omega0, cis, i0, crc, omega, omega_dot, iode, idot })
 		},
 		4 => {

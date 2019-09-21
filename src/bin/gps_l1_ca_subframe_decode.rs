@@ -92,7 +92,7 @@ fn main() {
 									// The telemetry decoder successfully decoded a subframe, but we just have a sequence of bits right now.  We need to interpret them.
 									if let Ok(sf) = gps::l1_ca_subframe::decode(subframe) {
 										// The bits of this subframe have been successfully interpreted.  Output the results to STDERR and store them in nav_data
-										let bytes:Vec<String> = utils::bool_slice_to_byte_vec(&subframe, true).iter().map(|b| format!("{:02X}", b)).collect();
+										let bytes:Vec<String> = utils::bool_slice_to_byte_vec(&subframe).iter().map(|b| format!("{:02X}", b)).collect();
 										let subframe_str = format!("{:?}", sf).blue();
 										eprintln!("    {}", subframe_str);
 										eprintln!("    Hex: {}", bytes.join(""));
@@ -133,7 +133,7 @@ fn main() {
 			if acq_samples_so_far > acq_samples_to_try { 
 				break; 
 			}
-			if acq_samples_so_far%2000 == 0 {
+			if acq_samples_so_far%20000 == 0 {
 				eprintln!("{}", format!("  No acquisition, {} of {} samples", acq_samples_so_far, acq_samples_to_try).red());
 			}
 		}

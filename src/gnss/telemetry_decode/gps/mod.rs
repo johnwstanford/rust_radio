@@ -71,15 +71,15 @@ impl TelemetryDecoder {
 						  state: TelemetryDecoderState::LookingForPreamble }
 	}
 
-	/// Takes a prompt tuple in the form of a boolean representing a bit and a usize representing the sample index where this symbol started.
+	/// Takes a bit tuple in the form of a boolean representing a bit and a usize representing the sample index where this symbol started.
 	/// Returns a Result that is Err is some kind of invalid telemetry data was detected.  If this method returns Ok, it'll be an Option.
 	/// If the Option is None, it means that the next subframe isn't ready yet.  If it's Some, it'll be a tuple of an array with the bits
 	/// in the subframe and a usize with the sample index where the subframe starts
-	pub fn apply(&mut self, prompt:(bool, usize)) -> Result<Option<([bool; SUBFRAME_SIZE_DATA_ONLY_BITS], usize)>, DigSigProcErr> {
+	pub fn apply(&mut self, bit:(bool, usize)) -> Result<Option<([bool; SUBFRAME_SIZE_DATA_ONLY_BITS], usize)>, DigSigProcErr> {
 		match self.state {
 			TelemetryDecoderState::LookingForPreamble => {
-				self.detector.apply(prompt.0);
-				self.detection_buffer.push_back(prompt);
+				self.detector.apply(bit.0);
+				self.detection_buffer.push_back(bit);
 				match (self.detector.get_result(), self.detector.is_inverse_sense()) {
 					(Ok(bit_locations), Ok(is_inverse_sense)) => {
 						// Preamble detected
@@ -99,7 +99,7 @@ impl TelemetryDecoder {
 				}
 			},
 			TelemetryDecoderState::DecodingSubframes{ is_inverse_sense } => {
-				self.detection_buffer.push_back(prompt);
+				self.detection_buffer.push_back(bit);
 
 				if self.detection_buffer.len() >= SUBFRAME_SIZE_W_PARITY_BITS {
 					let mut next_subframe = [false; SUBFRAME_SIZE_W_PARITY_BITS];

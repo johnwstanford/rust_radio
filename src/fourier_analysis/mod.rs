@@ -37,14 +37,3 @@ fn test_fft_and_ifft() {
 		assert_eq!(a, b);
 	}
 }
-
-#[bench]
-fn bench_fft(b: &mut self::test::Bencher) {
-
-	b.iter(|| {
-		let x_time:Vec<Complex<f64>> = (0..131072).map(|x| Complex{re: x as f64, im: 0.0}).collect();	
-		fft(&x_time);
-	})
-	
-
-}

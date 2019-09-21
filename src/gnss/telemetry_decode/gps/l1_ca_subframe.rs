@@ -10,6 +10,7 @@ use ::utils;
 pub struct CommonFields {
 	time_of_week_truncated:u32,
 	subframe_id:u8,
+	start_sample_idx:usize,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -29,10 +30,10 @@ pub enum CodeOnL2 {
 	CA_Code,
 }
 
-pub fn decode(bits:[bool; 240]) -> Result<Subframe, DigSigProcErr> {
+pub fn decode(bits:[bool; 240], start_sample_idx:usize) -> Result<Subframe, DigSigProcErr> {
 	let time_of_week_truncated:u32 = utils::bool_slice_to_u32(&bits[24..41]);
 	let subframe_id:u8 = utils::bool_slice_to_u8(&bits[43..46]);
-	let common = CommonFields{ time_of_week_truncated, subframe_id };
+	let common = CommonFields{ time_of_week_truncated, subframe_id, start_sample_idx };
 
 	match subframe_id {
 		1 => {

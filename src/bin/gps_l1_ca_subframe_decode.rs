@@ -90,7 +90,7 @@ fn main() {
 							match tlm.apply((bit.re > 0.0, bit_idx)) {
 								Ok(Some((subframe, start_idx))) => {
 									// The telemetry decoder successfully decoded a subframe, but we just have a sequence of bits right now.  We need to interpret them.
-									if let Ok(sf) = gps::l1_ca_subframe::decode(subframe) {
+									if let Ok(sf) = gps::l1_ca_subframe::decode(subframe, start_idx) {
 										// The bits of this subframe have been successfully interpreted.  Output the results to STDERR and store them in nav_data
 										let bytes:Vec<String> = utils::bool_slice_to_byte_vec(&subframe).iter().map(|b| format!("{:02X}", b)).collect();
 										let subframe_str = format!("{:?}", sf).blue();

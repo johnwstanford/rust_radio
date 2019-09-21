@@ -78,7 +78,6 @@ impl TelemetryDecoder {
 	pub fn apply(&mut self, prompt:(bool, usize)) -> Result<Option<([bool; SUBFRAME_SIZE_DATA_ONLY_BITS], usize)>, DigSigProcErr> {
 		match self.state {
 			TelemetryDecoderState::LookingForPreamble => {
-				//let b:bool = prompt.re > 0.0;
 				self.detector.apply(prompt.0);
 				self.detection_buffer.push_back(prompt);
 				match (self.detector.get_result(), self.detector.is_inverse_sense()) {

@@ -1,5 +1,3 @@
-#![feature(test)]
-
 extern crate byteorder;
 
 pub mod filters;

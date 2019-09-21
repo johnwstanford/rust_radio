@@ -1,6 +1,5 @@
 
 extern crate num_complex;
-extern crate test;
 
 use self::num_complex::Complex;
 use ::types::even_odd_slice::{self, EvenOddSlice};

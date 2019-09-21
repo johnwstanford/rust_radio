@@ -4,6 +4,8 @@ RustRadio is a digital signal processing library for the Rust programming langua
 
 The GNSS functionality is the best-developed portion of the project so far but I plan to expand the scope to a broader range of digital signal processing functionality.  The library also currently includes my own FFT module made (almost) from scratch.  It only works with power-of-two window sizes and the performance may not be as good as better-developed libraries, but it's good for learning.  When I need an FFT in the GNSS code, I use the `rustfft` crate instead of my own FFT.
 
+This crate has been most recently built and tested with stable Rust 1.37.0.
+
 # GNSS Quick Start
 
 The library includes several binaries that demo some of the key features.  One of them is called `gps_l1_ca_subframe_decode` and it takes raw IQ samples from a software-defined radio receiver, acquires SVs, tracks them, and decodes navigation messages.  However, it doesn't yet translate the navigation messages into a fix.  It outputs the navigation messages in JSON format.  Not all navigation messages are implemented so far.  To try it, clone the repository.

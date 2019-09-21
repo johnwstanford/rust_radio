@@ -1,6 +1,7 @@
 
 extern crate rustfft;
 
+use std::collections::VecDeque;
 use std::f64::consts;
 
 use self::rustfft::num_complex::Complex;
@@ -14,7 +15,7 @@ mod lock_detectors;
 
 type Sample = (Complex<f64>, usize);
 
-pub struct Tracking<T: Iterator<Item=Sample>> {
+pub struct Tracking {
 	carrier_phase: Complex<f64>,		// mutable
 	carrier_dphase_rad: f64,
 	code_phase: f64,
@@ -23,8 +24,9 @@ pub struct Tracking<T: Iterator<Item=Sample>> {
 	code_filter: filters::FIR,
 	lock_fail_count: usize,
 	lock_fail_limit: usize,
-	first_transition: bool,
-	src: T,
+	sample_buffer: VecDeque<Sample>,
+	prompt_buffer: VecDeque<(Complex<f64>, usize)>,
+	state: TrackingState,
 	pub fs:f64,								// immutable
 	pub local_code:Vec<Complex<f64>>,
 	pub threshold_carrier_lock_test:f64,
@@ -32,34 +34,50 @@ pub struct Tracking<T: Iterator<Item=Sample>> {
 	pub samples_consumed:usize,
 }
 
-impl<T: Iterator<Item=Sample>> Tracking<T> {
+enum TrackingState {
+	WaitingForInitialLockStatus,
+	WaitingForFirstTransition,
+	Tracking,
+}
 
-	fn cn0_and_tracking_lock_status(&self, prompt_buffer:&Vec<Complex<f64>>) -> bool {
-		if prompt_buffer.len() != 20 { true } else {
-			let cn0_snv_db_hz = lock_detectors::cn0_svn_estimator(prompt_buffer, 0.001);
-			let carrier_lock_test = lock_detectors::carrier_lock_detector(prompt_buffer);
+impl Tracking {
+
+	fn cn0_and_tracking_lock_status(&self) -> bool {
+		if self.prompt_buffer.len() < 20 { true } else {
+			let cn0_snv_db_hz = lock_detectors::cn0_svn_estimator(&self.prompt_buffer, 0.001);
+			let carrier_lock_test = lock_detectors::carrier_lock_detector(&self.prompt_buffer);
 			(carrier_lock_test >= self.threshold_carrier_lock_test) && (cn0_snv_db_hz >= self.threshold_cn0_snv_db_hz)
-		}	
+		}
 	}
 
 	fn next_prn_length(&self) -> usize { ((1023.0 / self.code_dphase) - self.code_phase).floor() as usize }
 
-	fn next_prn(&mut self) -> Result<(Vec<Complex<f64>>, usize), DigSigProcErr> {
+	/// Checks to see if the buffer currently contains enough samples to produce the next symbol.  If so, returns Some with a tuple
+	/// containing the complex samples and the index of the first one.  If not, returns None.
+	fn next_prn(&mut self) -> Option<(Vec<Complex<f64>>, usize)> {
 		let next_len:usize = self.next_prn_length();
-		let mut this_prn:Vec<Complex<f64>> = vec![];
-		if let Some((first_x, first_idx)) = self.src.next() {
-			this_prn.push(first_x);
-			while let Some((x, _)) = self.src.next() {
-				this_prn.push(x);
-				if this_prn.len() >= next_len { break; }
-			}
-			if this_prn.len() == next_len { 
+		if self.sample_buffer.len() >= next_len {
+			let mut this_prn:Vec<Complex<f64>> = vec![];
+			if let Some((first_x, first_idx)) = self.sample_buffer.pop_front() {
+				this_prn.push(first_x);
+				while this_prn.len() < next_len {
+					if let Some((x, _)) = self.sample_buffer.pop_front() {
+						this_prn.push(x);
+					} else {
+						panic!("We thought we had enough samples in the buffer when we started building the PRN, but somehow ran out");
+					}
+				}
 				self.samples_consumed += next_len;
-				Ok((this_prn, first_idx)) 
-			} 
-			else { Err(DigSigProcErr::NoSourceData) }
+				Some((this_prn, first_idx)) 
+		
+			} else {
+				panic!("The buffer length was greater than the required next length, but getting the first element somehow failed");
+			}
+		} else {
+			// Not enough samples in the buffer to produce the next PRN
+			None
 		}
-		else { Err(DigSigProcErr::NoSourceData) }
+	
 	}
 
 	fn carrier_wipe(&mut self, xin:&Vec<Complex<f64>>) -> Vec<Complex<f64>> {
@@ -92,74 +110,94 @@ impl<T: Iterator<Item=Sample>> Tracking<T> {
 		(early, prompt, late)
 	}
 
-	fn next_correlation(&mut self) -> Result<((Complex<f64>, Complex<f64>, Complex<f64>), usize), DigSigProcErr> {
-		let (xin, idx) = self.next_prn()?;
-		Ok((self.do_correlation_step(&xin), idx))
-	}
-
-	fn next_prompt(&mut self) -> Result<(Complex<f64>, usize), DigSigProcErr> {
-		let ((early, prompt, late), idx) = self.next_correlation()?;
-
-		// Update carrier tracking
-		let carrier_error = if prompt.re == 0.0 { 0.0 } else { (prompt.im / prompt.re).atan() / self.fs };
-		self.carrier_dphase_rad += self.carrier_filter.apply(&carrier_error);
-
-		let code_error = {
-			let e:f64 = early.norm();
-			let l:f64 = late.norm();
-			if l+e == 0.0 { 0.0 } else { 0.5 * (l-e) / (l+e) }
-		};
-		self.code_dphase += self.code_filter.apply(&(code_error / self.fs));
-
-		Ok((prompt, idx))
-	}
-
-	fn next_prompt_vec(&mut self, n:usize) -> Result<(Vec<Complex<f64>>, usize), DigSigProcErr> {
-		let (first_prompt, first_idx) = self.next_prompt()?;
-		let mut ans:Vec<Complex<f64>> = vec![first_prompt];
-		while ans.len() < n { ans.push(self.next_prompt()?.0); }
-		Ok((ans, first_idx))
-	}
-
 	// Public interface
-	pub fn next(&mut self) -> Result<(Complex<f64>, usize), DigSigProcErr> {
+	/// Takes a sample in the form of a tuple of the complex sample itself and the sample number.  Returns a Result.
+	/// If the Result is Err, then lock has been lost.  If the Result is Ok, then we are still tracking the signal and
+	/// the Ok will contain an Option.  If the Option is None, then the next prompt value is not ready yet.  If it's
+	/// Some, it'll contain a tuple with the next prompt value and the sample index where this symbol starts.
+	pub fn apply(&mut self, sample:Sample) -> Result<Option<(Complex<f64>, usize)>, DigSigProcErr> {
+		// Start by adding the new sample to the sample buffer
+		self.sample_buffer.push_back(sample);
 
-		let (prompt_buffer, prompt_idx) = if !self.first_transition {
-			// Wait until the lock status becomes good
-			let mut buff:Vec<Complex<f64>> = self.next_prompt_vec(20)?.0;
-			while !self.cn0_and_tracking_lock_status(&buff) { buff = self.next_prompt_vec(20)?.0; }
+		// If there's a new prompt value available, do correlation on it and add it to the prompt buffer
+		if let Some((prn, prn_idx)) = self.next_prn() {
+			let (early, prompt, late) = self.do_correlation_step(&prn);
 
-			let first_prompt:Complex<f64> = self.next_prompt()?.0;
+			// Update carrier tracking
+			let carrier_error = if prompt.re == 0.0 { 0.0 } else { (prompt.im / prompt.re).atan() / self.fs };
+			self.carrier_dphase_rad += self.carrier_filter.apply(&carrier_error);
 
-			// Find the first prompt transitions
-			let (mut first_transition_prompt, mut first_transition_idx) = self.next_prompt()?;
-			while (first_prompt.re > 0.0) == (first_transition_prompt.re > 0.0) {
-				let next = self.next_prompt()?;
-				first_transition_prompt = next.0;
-				first_transition_idx = next.1;
+			let code_error = {
+				let e:f64 = early.norm();
+				let l:f64 = late.norm();
+				if l+e == 0.0 { 0.0 } else { 0.5 * (l-e) / (l+e) }
+			};
+			self.code_dphase += self.code_filter.apply(&(code_error / self.fs));
+
+			// Add this prompt value to the buffer
+			self.prompt_buffer.push_back((prompt, prn_idx))
+		}
+
+		// Match on the current state.
+		match self.state {
+			TrackingState::WaitingForInitialLockStatus => {
+				// Limit the size of the prompt buffer to 20
+				// TODO: make this a variable
+				while self.prompt_buffer.len() > 20 { self.prompt_buffer.pop_front(); }
+				
+				if self.cn0_and_tracking_lock_status() { 
+					self.state = TrackingState::WaitingForFirstTransition;
+				}
+				Ok(None)
+			},
+			TrackingState::WaitingForFirstTransition => {
+				let (found_transition, back_pos) = match (self.prompt_buffer.front(), self.prompt_buffer.back()) {
+					(Some((front, _)), Some((back, _))) => ((front.re > 0.0) != (back.re > 0.0), back.re > 0.0),
+					(_, _) => (false, false)
+				};
+
+				if found_transition {
+					// We've found the first transition, get rid of everything before the transition
+					self.prompt_buffer.retain(|(c, _)| (c.re > 0.0) == back_pos);
+
+					if self.prompt_buffer.len() > 0 {
+						self.state = TrackingState::Tracking;
+					} else {
+						panic!("Somehow ended up with an empty prompt buffer after detecting the first transition");
+					}
+				} 
+
+				Ok(None)
+			},
+			TrackingState::Tracking => {
+				if self.prompt_buffer.len() > 20 { 
+					// We have enough prompts to build a bit
+					let first_idx:usize = self.prompt_buffer[0].1;
+					let prompts_this_bit:VecDeque<Complex<f64>> = self.prompt_buffer.drain(..20).map(|(c, _)| c).collect(); 
+
+					if !self.cn0_and_tracking_lock_status() { self.lock_fail_count += 1; }
+					else if self.lock_fail_count > 0 { self.lock_fail_count -= 1; }
+
+					if self.lock_fail_count > self.lock_fail_limit { 
+						Err(DigSigProcErr::LossOfLock) 
+					} else {
+						let this_bit:Complex<f64> = prompts_this_bit.into_iter().fold(Complex{ re:0.0, im:0.0 }, |a,b| a+b); 
+						Ok(Some((this_bit, first_idx))) 
+					}
+				} else {
+					Ok(None)
+				}
+
 			}
-
-			// After we've found the first transition, set this flag so we don't look again
-			self.first_transition = true;
-
-			// After we find the first transition, gather the remaining samples that make up this bit
-			let mut buff:Vec<Complex<f64>> = vec![first_transition_prompt];
-			for _ in 1..20 { buff.push(self.next_prompt()?.0); }
-			(buff, first_transition_idx)
-		} else { self.next_prompt_vec(20)? };
-
-		if !self.cn0_and_tracking_lock_status(&prompt_buffer) { self.lock_fail_count += 1; }
-		else if self.lock_fail_count > 0 { self.lock_fail_count -= 1; }
-
-		if self.lock_fail_count > self.lock_fail_limit { Err(DigSigProcErr::LossOfLock) }
-		else { Ok((prompt_buffer.into_iter().fold(Complex{re: 0.0, im: 0.0}, |a,b| a+b), prompt_idx)) }
+		}
+		
 	}
 
 	pub fn carrier_freq_hz(&self) -> f64 { (self.carrier_dphase_rad * self.fs) / (2.0 * consts::PI) }
 
 }
 
-pub fn new_default_tracker<T: Iterator<Item=Sample>>(prn:usize, acq_freq_hz:f64, fs:f64, bw_pll_hz:f64, bw_dll_hz:f64, src:T) -> Tracking<T> {
+pub fn new_default_tracker(prn:usize, acq_freq_hz:f64, fs:f64, bw_pll_hz:f64, bw_dll_hz:f64) -> Tracking {
 	let symbol:Vec<i8> = l1_ca_signal::prn_int(prn);
 	let local_code: Vec<Complex<f64>> = symbol.into_iter().map(|b| Complex{ re: b as f64, im: 0.0 }).collect();
 
@@ -186,6 +224,9 @@ pub fn new_default_tracker<T: Iterator<Item=Sample>>(prn:usize, acq_freq_hz:f64,
 	Tracking { carrier_phase, carrier_dphase_rad, code_phase, code_dphase,
 		carrier_filter, code_filter,
 		lock_fail_count: 0, lock_fail_limit: 50, 
-		first_transition: false, src, fs, local_code, threshold_carrier_lock_test: 0.8, threshold_cn0_snv_db_hz: 30.0, samples_consumed: 0
+		sample_buffer: VecDeque::new(), 
+		prompt_buffer: VecDeque::new(), 
+		state: TrackingState::WaitingForInitialLockStatus,
+		fs, local_code, threshold_carrier_lock_test: 0.8, threshold_cn0_snv_db_hz: 30.0, samples_consumed: 0
 	}		
 }

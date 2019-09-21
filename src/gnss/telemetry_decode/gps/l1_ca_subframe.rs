@@ -14,7 +14,7 @@ pub struct CommonFields {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum Subframe {
-	Subframe1{common:CommonFields, week_number:u16, code_on_l2:CodeOnL2, ura_index:u8, sv_health:u8, iodc:u16},
+	Subframe1{common:CommonFields, week_number:u16, code_on_l2:CodeOnL2, ura_index:u8, sv_health:u8, iodc:u16, t_gd:f64, t_oc:u32, a_f2:f64, a_f1:f64, a_f0:f64},
 	Subframe2{common:CommonFields, iode:u8, crs:f64, dn:f64, m0:f64, cuc:f64, e:f64, cus:f64, sqrt_a:f64, t_oe:f64, fit_interval:bool, aodo:u8 },
 	Subframe3{common:CommonFields, cic:f64, omega0:f64, cis:f64, i0:f64, crc:f64, omega:f64, omega_dot:f64, iode:u8, idot:f64},
 	Subframe4{common:CommonFields},
@@ -43,11 +43,16 @@ pub fn decode(bits:[bool; 240]) -> Result<Subframe, DigSigProcErr> {
 				(true,  false) => CodeOnL2::CA_Code,
 				(true,  true ) => return Err(DigSigProcErr::InvalidTelemetryData),
 			};
-			let ura_index:u8 = utils::bool_slice_to_u8(&bits[60..64]);
-			let sv_health:u8 = utils::bool_slice_to_u8(&bits[64..70]);
-			let iodc:u16     = utils::bool_slice_to_u16(&[&bits[70..72], &bits[168..176]].concat());
+			let ura_index:u8 =  utils::bool_slice_to_u8(&bits[60..64]);
+			let sv_health:u8 =  utils::bool_slice_to_u8(&bits[64..70]);
+			let iodc:u16     =  utils::bool_slice_to_u16(&[&bits[70..72], &bits[168..176]].concat());
+			let t_gd:f64     = (utils::bool_slice_to_i8(&bits[160..168]) as f64) * (2.0_f64).powi(-31);
+			let t_oc:u32     =  utils::bool_slice_to_u32(&bits[176..192]) * 16_u32;
+			let a_f2:f64     = (utils::bool_slice_to_i8(&bits[192..200]) as f64) * (2.0_f64).powi(-55);
+			let a_f1:f64     = (utils::bool_slice_to_i16(&bits[200..216]) as f64) * (2.0_f64).powi(-43);
+			let a_f0:f64     = (utils::bool_slice_to_i32(&bits[216..238]) as f64) * (2.0_f64).powi(-31);
 
-			Ok(Subframe::Subframe1{ common, week_number, code_on_l2, ura_index, sv_health, iodc })
+			Ok(Subframe::Subframe1{ common, week_number, code_on_l2, ura_index, sv_health, iodc, t_gd, t_oc, a_f2, a_f1, a_f0 })
 		},
 		2 => {
 			let iode:u8    =  utils::bool_slice_to_u8( &bits[ 48..56 ]);

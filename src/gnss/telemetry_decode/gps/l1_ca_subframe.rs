@@ -69,10 +69,10 @@ pub fn decode(bits:[bool; 240]) -> Result<Subframe, DigSigProcErr> {
 			let cis:f64       = (utils::bool_slice_to_i16(&bits[ 96..112]) as f64) * (2.0_f64).powi(-29);
 			let i0:f64        = (utils::bool_slice_to_i32(&bits[112..144]) as f64) * (2.0_f64).powi(-31);
 			let crc:f64       = (utils::bool_slice_to_i16(&bits[144..160]) as f64) * (2.0_f64).powi(-5);
-			let omega:f64     = (utils::bool_slice_to_i32(&bits[160..182]) as f64) * (2.0_f64).powi(-31);
-			let omega_dot:f64 = (utils::bool_slice_to_i32(&bits[182..206]) as f64) * (2.0_f64).powi(-43);
-			let iode:u8       =  utils::bool_slice_to_u8( &bits[206..214]);
-			let idot:f64      = (utils::bool_slice_to_i16(&bits[214..228]) as f64) * (2.0_f64).powi(-43);
+			let omega:f64     = (utils::bool_slice_to_i32(&bits[160..192]) as f64) * (2.0_f64).powi(-31);
+			let omega_dot:f64 = (utils::bool_slice_to_i32(&bits[192..216]) as f64) * (2.0_f64).powi(-43);
+			let iode:u8       =  utils::bool_slice_to_u8( &bits[216..224]);
+			let idot:f64      = (utils::bool_slice_to_i16(&bits[224..238]) as f64) * (2.0_f64).powi(-43);
 			Ok(Subframe::Subframe3{ common, cic, omega0, cis, i0, crc, omega, omega_dot, iode, idot })
 		},
 		4 => {

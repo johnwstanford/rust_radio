@@ -18,8 +18,8 @@ pub enum Subframe {
 	Subframe1{common:CommonFields, week_number:u16, code_on_l2:CodeOnL2, ura_index:u8, sv_health:u8, iodc:u16, t_gd:f64, t_oc:u32, a_f2:f64, a_f1:f64, a_f0:f64},
 	Subframe2{common:CommonFields, iode:u8, crs:f64, dn:f64, m0:f64, cuc:f64, e:f64, cus:f64, sqrt_a:f64, t_oe:f64, fit_interval:bool, aodo:u8 },
 	Subframe3{common:CommonFields, cic:f64, omega0:f64, cis:f64, i0:f64, crc:f64, omega:f64, omega_dot:f64, iode:u8, idot:f64},
-	Subframe4{common:CommonFields},
-	Subframe5{common:CommonFields},
+	Subframe4{common:CommonFields, data_id:u8, sv_id:u8},
+	Subframe5{common:CommonFields, data_id:u8, sv_id:u8},
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -82,10 +82,14 @@ pub fn decode(bits:[bool; 240], start_sample_idx:usize) -> Result<Subframe, DigS
 			Ok(Subframe::Subframe3{ common, cic, omega0, cis, i0, crc, omega, omega_dot, iode, idot })
 		},
 		4 => {
-			Ok(Subframe::Subframe4{ common })
+			let data_id:u8 = utils::bool_slice_to_u8(&bits[48..50]);
+			let sv_id:u8   = utils::bool_slice_to_u8(&bits[50..56]);
+			Ok(Subframe::Subframe4{ common, data_id, sv_id })
 		},
 		5 => {
-			Ok(Subframe::Subframe5{ common })
+			let data_id:u8 = utils::bool_slice_to_u8(&bits[48..50]);
+			let sv_id:u8   = utils::bool_slice_to_u8(&bits[50..56]);
+			Ok(Subframe::Subframe5{ common, data_id, sv_id })
 		},
 		_ => Err(DigSigProcErr::InvalidTelemetryData),
 	}

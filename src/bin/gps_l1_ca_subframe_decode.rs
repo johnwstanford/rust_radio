@@ -82,6 +82,8 @@ fn main() {
 				let mut nav_data:Vec<(String, gps::l1_ca_subframe::Subframe, usize)> = vec![];
 
 				while let Some(sample) = signal.next() {
+					// While we have samples available in the signal
+
 					match trk.apply(sample) {
 						Ok(Some((bit, bit_idx))) => {
 							// While the tracker still has a lock and keeps producing prompt values, pass them into the telemetry decoder and match on the result
@@ -112,10 +114,11 @@ fn main() {
 								}
 							}
 						}
-						Ok(None) => {},
+						Ok(None) => {
+							// We don't have a new bit available, but we also haven't lost the lock, so do nothing
+						},
 						Err(e) => {
 							// The tracking block reported a loss of lock
-							if acq_samples_so_far > acq_samples_to_try { break; }
 							eprintln!("{}", format!("  Loss of lock due to {:?}, {} of {}", e, acq_samples_so_far, acq_samples_to_try).red());
 							break;
 						}

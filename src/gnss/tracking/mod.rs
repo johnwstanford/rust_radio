@@ -31,7 +31,6 @@ pub struct Tracking {
 	pub local_code:Vec<Complex<f64>>,
 	pub threshold_carrier_lock_test:f64,
 	pub threshold_cn0_snv_db_hz:f64,
-	pub samples_consumed:usize,
 }
 
 enum TrackingState {
@@ -57,6 +56,7 @@ impl Tracking {
 	fn next_prn(&mut self) -> Option<(Vec<Complex<f64>>, usize)> {
 		let next_len:usize = self.next_prn_length();
 		if self.sample_buffer.len() >= next_len {
+			// We have enough samples to produce the next PRN
 			let mut this_prn:Vec<Complex<f64>> = vec![];
 			if let Some((first_x, first_idx)) = self.sample_buffer.pop_front() {
 				this_prn.push(first_x);
@@ -67,7 +67,6 @@ impl Tracking {
 						panic!("We thought we had enough samples in the buffer when we started building the PRN, but somehow ran out");
 					}
 				}
-				self.samples_consumed += next_len;
 				Some((this_prn, first_idx)) 
 		
 			} else {
@@ -227,6 +226,6 @@ pub fn new_default_tracker(prn:usize, acq_freq_hz:f64, fs:f64, bw_pll_hz:f64, bw
 		sample_buffer: VecDeque::new(), 
 		prompt_buffer: VecDeque::new(), 
 		state: TrackingState::WaitingForInitialLockStatus,
-		fs, local_code, threshold_carrier_lock_test: 0.8, threshold_cn0_snv_db_hz: 30.0, samples_consumed: 0
+		fs, local_code, threshold_carrier_lock_test: 0.8, threshold_cn0_snv_db_hz: 30.0
 	}		
 }

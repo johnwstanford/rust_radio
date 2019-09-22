@@ -20,8 +20,8 @@ pub struct Tracking {
 	carrier_dphase_rad: f64,
 	code_phase: f64,
 	code_dphase: f64,
-	carrier_filter: filters::FIR,
-	code_filter: filters::FIR,
+	carrier_filter: filters::SecondOrderFIR,
+	code_filter: filters::SecondOrderFIR,
 	lock_fail_count: usize,
 	lock_fail_limit: usize,
 	sample_buffer: VecDeque<Sample>,
@@ -124,14 +124,14 @@ impl Tracking {
 
 			// Update carrier tracking
 			let carrier_error = if prompt.re == 0.0 { 0.0 } else { (prompt.im / prompt.re).atan() / self.fs };
-			self.carrier_dphase_rad += self.carrier_filter.apply(&carrier_error);
+			self.carrier_dphase_rad += self.carrier_filter.apply(carrier_error);
 
 			let code_error = {
 				let e:f64 = early.norm();
 				let l:f64 = late.norm();
 				if l+e == 0.0 { 0.0 } else { 0.5 * (l-e) / (l+e) }
 			};
-			self.code_dphase += self.code_filter.apply(&(code_error / self.fs));
+			self.code_dphase += self.code_filter.apply(code_error / self.fs);
 
 			// Add this prompt value to the buffer
 			self.prompt_buffer.push_back((prompt, prn_idx))
@@ -216,8 +216,8 @@ pub fn new_default_tracker(prn:usize, acq_freq_hz:f64, fs:f64, bw_pll_hz:f64, bw
 	let tau2_cod = (2.0 * zeta) / wn_cod;
 	let tau2_car = (2.0 * zeta) / wn_car;
 
-	let carrier_filter = filters::new_fir(vec![(pdi + 2.0*tau2_car) / (2.0*tau1_car), (pdi - 2.0*tau2_car) / (2.0*tau1_car)]);
-	let code_filter    = filters::new_fir(vec![(pdi + 2.0*tau2_cod) / (2.0*tau1_cod), (pdi - 2.0*tau2_cod) / (2.0*tau1_cod)]);
+	let carrier_filter = filters::new_second_order_fir((pdi + 2.0*tau2_car) / (2.0*tau1_car), (pdi - 2.0*tau2_car) / (2.0*tau1_car));
+	let code_filter    = filters::new_second_order_fir((pdi + 2.0*tau2_cod) / (2.0*tau1_cod), (pdi - 2.0*tau2_cod) / (2.0*tau1_cod));
 
 	Tracking { carrier_phase, carrier_dphase_rad, code_phase, code_dphase,
 		carrier_filter, code_filter,

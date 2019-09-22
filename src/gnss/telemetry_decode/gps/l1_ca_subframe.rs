@@ -18,17 +18,17 @@ pub enum Subframe {
 	Subframe1{common:CommonFields, week_number:u16, code_on_l2:CodeOnL2, ura_index:u8, sv_health:u8, iodc:u16, t_gd:f64, t_oc:u32, a_f2:f64, a_f1:f64, a_f0:f64},
 	Subframe2{common:CommonFields, iode:u8, crs:f64, dn:f64, m0:f64, cuc:f64, e:f64, cus:f64, sqrt_a:f64, t_oe:f64, fit_interval:bool, aodo:u8 },
 	Subframe3{common:CommonFields, cic:f64, omega0:f64, cis:f64, i0:f64, crc:f64, omega:f64, omega_dot:f64, iode:u8, idot:f64},
-	Subframe4{common:CommonFields, data_id:u8, sv_id:u8},
+	Subframe4{common:CommonFields, data_id:u8, sv_id:u8, page:Subframe4},
 	Subframe5{common:CommonFields, data_id:u8, sv_id:u8, page:Subframe5},
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum Subframe4 {
-	AlmanacData,
-	NavigationMessageCorrectionTable,
-	SpecialMessages,
-	IonosphereAndUTC,
-	AntispoofAndHealth,
+	AlmanacData{e:f64, t_oa:u32, delta_i:f64, omega_dot:f64, sv_health:u8, sqrt_a:f64, omega0:f64, omega:f64, m0:f64, af0:f64, af1:f64},
+	NavigationMessageCorrectionTable{availability:u8, erd:[u8; 30]},
+	SpecialMessages([u8; 22]),
+	IonosphereUTC,
+	AntispoofConfigHealth,
 	Reserved,
 }
 
@@ -100,7 +100,45 @@ pub fn decode(bits:[bool; 240], start_sample_idx:usize) -> Result<Subframe, DigS
 		4 => {
 			let data_id:u8 = utils::bool_slice_to_u8(&bits[48..50]);
 			let sv_id:u8   = utils::bool_slice_to_u8(&bits[50..56]);
-			Ok(Subframe::Subframe4{ common, data_id, sv_id })
+			let page:Subframe4 = match sv_id {
+				25..=32 => {
+					let e:f64         = (utils::bool_slice_to_u16(&bits[ 56..72 ]) as f64) * (2.0_f64).powi(-21);
+					let t_oa:u32      =  utils::bool_slice_to_u32(&bits[ 72..80 ]) * 2_u32.pow(12);
+					let delta_i:f64   = (utils::bool_slice_to_i16(&bits[ 80..96 ]) as f64) * (2.0_f64).powi(-19);
+					let omega_dot:f64 = (utils::bool_slice_to_i16(&bits[ 96..112]) as f64) * (2.0_f64).powi(-38);
+					let sv_health:u8  =  utils::bool_slice_to_u8( &bits[112..120]);
+					let sqrt_a:f64    = (utils::bool_slice_to_u32(&bits[120..144]) as f64) * (2.0_f64).powi(-11);
+					let omega0:f64    = (utils::bool_slice_to_i32(&bits[144..168]) as f64) * (2.0_f64).powi(-23);
+					let omega:f64     = (utils::bool_slice_to_i32(&bits[168..192]) as f64) * (2.0_f64).powi(-23);
+					let m0:f64        = (utils::bool_slice_to_i32(&bits[192..216]) as f64) * (2.0_f64).powi(-23);
+					let af0:f64       = (utils::bool_slice_to_i16(&[&bits[216..224], &bits[235..238]].concat()) as f64) * (2.0_f64).powi(-20);
+					let af1:f64       = (utils::bool_slice_to_i32(&bits[224..235]) as f64) * (2.0_f64).powi(-18);
+					Subframe4::AlmanacData{e, t_oa, delta_i, omega_dot, sv_health, sqrt_a, omega0, omega, m0, af0, af1}
+				},
+				52 => {
+					let availability:u8 = utils::bool_slice_to_u8(&bits[56..58]);
+					let mut erd:[u8; 30] = [0; 30];
+					for i in 0..30 {
+						erd[i] = utils::bool_slice_to_u8(&bits[(58+(i*6))..(64+(i*6))]);
+					}
+					Subframe4::NavigationMessageCorrectionTable{availability, erd}
+				},
+				55 => {
+					let mut message:[u8; 22] = [0; 22];
+					for i in 0..22 {
+						message[i] = utils::bool_slice_to_u8(&bits[(56+(i*8))..(64+(i*8))]);
+					}
+					Subframe4::SpecialMessages(message)
+				},
+				56 => {
+					Subframe4::IonosphereUTC
+				},
+				62 => {
+					Subframe4::AntispoofConfigHealth
+				},
+				_ => Subframe4::Reserved,
+			};
+			Ok(Subframe::Subframe4{ common, data_id, sv_id, page })
 		},
 		5 => {
 			let data_id:u8 = utils::bool_slice_to_u8(&bits[48..50]);

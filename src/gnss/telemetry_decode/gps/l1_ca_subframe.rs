@@ -27,7 +27,7 @@ pub enum Subframe4 {
 	AlmanacData{e:f64, t_oa:u32, delta_i:f64, omega_dot:f64, sv_health:u8, sqrt_a:f64, omega0:f64, omega:f64, m0:f64, af0:f64, af1:f64},
 	NavigationMessageCorrectionTable{availability:u8, erd:[u8; 30]},
 	SpecialMessages([u8; 22]),
-	IonosphereUTC,
+	Page18{ alpha0:f64, alpha1:f64, alpha2:f64, alpha3:f64, beta0:f64, beta1:f64, beta2:f64, beta3:f64, a1:f64, a0:f64, t_ot:u32, wn_t:u8, delta_t_LS:i8, wn_LSF:u8, delta_t_LSF:i8 },
 	AntispoofConfigHealth,
 	Reserved,
 }
@@ -131,7 +131,23 @@ pub fn decode(bits:[bool; 240], start_sample_idx:usize) -> Result<Subframe, DigS
 					Subframe4::SpecialMessages(message)
 				},
 				56 => {
-					Subframe4::IonosphereUTC
+					let alpha0:f64     = (utils::bool_slice_to_i8(&bits[ 56..64 ]) as f64) * (2.0_f64).powi(-30);
+					let alpha1:f64     = (utils::bool_slice_to_i8(&bits[ 64..72 ]) as f64) * (2.0_f64).powi(-27);
+					let alpha2:f64     = (utils::bool_slice_to_i8(&bits[ 72..80 ]) as f64) * (2.0_f64).powi(-24);
+					let alpha3:f64     = (utils::bool_slice_to_i8(&bits[ 80..88 ]) as f64) * (2.0_f64).powi(-24);
+					let beta0:f64      = (utils::bool_slice_to_i8(&bits[ 88..96 ]) as f64) * (2.0_f64).powi(11);
+					let beta1:f64      = (utils::bool_slice_to_i8(&bits[ 96..104]) as f64) * (2.0_f64).powi(14);
+					let beta2:f64      = (utils::bool_slice_to_i8(&bits[104..112]) as f64) * (2.0_f64).powi(16);
+					let beta3:f64      = (utils::bool_slice_to_i8(&bits[112..120]) as f64) * (2.0_f64).powi(16);
+					let a1:f64         = (utils::bool_slice_to_i32(&bits[120..144]) as f64) * (2.0_f64).powi(-50); 
+					let a0:f64         = (utils::bool_slice_to_i32(&bits[144..176]) as f64) * (2.0_f64).powi(-30);
+					let t_ot:u32       =  utils::bool_slice_to_u32(&bits[176..184]) * (2_u32).pow(12);
+					let wn_t:u8        =  utils::bool_slice_to_u8(&bits[184..192]);
+					let delta_t_LS:i8  =  utils::bool_slice_to_i8(&bits[192..200]);
+					let wn_LSF:u8      =  utils::bool_slice_to_u8(&bits[200..208]);  
+					let delta_t_LSF:i8 =  utils::bool_slice_to_i8(&bits[208..216]);
+
+					Subframe4::Page18{ alpha0, alpha1, alpha2, alpha3, beta0, beta1, beta2, beta3, a1, a0, t_ot, wn_t, delta_t_LS, wn_LSF, delta_t_LSF }
 				},
 				62 => {
 					Subframe4::AntispoofConfigHealth

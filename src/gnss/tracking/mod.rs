@@ -197,8 +197,7 @@ impl Tracking {
 }
 
 pub fn new_default_tracker(prn:usize, acq_freq_hz:f64, fs:f64, bw_pll_hz:f64, bw_dll_hz:f64) -> Tracking {
-	let symbol:Vec<i8> = l1_ca_signal::prn_int(prn);
-	let local_code: Vec<Complex<f64>> = symbol.into_iter().map(|b| Complex{ re: b as f64, im: 0.0 }).collect();
+	let local_code: Vec<Complex<f64>> = l1_ca_signal::prn_complex(prn);
 
 	let acq_carrier_rad_per_sec = acq_freq_hz * 2.0 * consts::PI;
 	let carrier_phase:Complex<f64> = Complex{ re: 1.0, im: 0.0};

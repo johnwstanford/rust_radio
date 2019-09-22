@@ -30,7 +30,6 @@ The binary needs to know the sample rate of the file (2.0 Msps in this case) and
 
 * GNSS Functionality
 	* Add support for non-GPS signals (Galileo, GLONASS, etc)
-	* Finish nav message decoding for GPS L1 C/A
 	* Finish translating nav messages into a time/position fix
 	* Add support for SBAS system (WAAS, etc)
 	* Add support for GPS signals other than L1 C/A

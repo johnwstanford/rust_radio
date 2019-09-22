@@ -28,7 +28,7 @@ pub enum Subframe4 {
 	NavigationMessageCorrectionTable{availability:u8, erd:[u8; 30]},
 	SpecialMessages([u8; 22]),
 	Page18{ alpha0:f64, alpha1:f64, alpha2:f64, alpha3:f64, beta0:f64, beta1:f64, beta2:f64, beta3:f64, a1:f64, a0:f64, t_ot:u32, wn_t:u8, delta_t_LS:i8, wn_LSF:u8, delta_t_LSF:i8 },
-	AntispoofConfigHealth,
+	Page25{ antispoof_and_config:[u8; 32], sv_health:[u8; 8] },
 	Reserved,
 }
 
@@ -150,7 +150,15 @@ pub fn decode(bits:[bool; 240], start_sample_idx:usize) -> Result<Subframe, DigS
 					Subframe4::Page18{ alpha0, alpha1, alpha2, alpha3, beta0, beta1, beta2, beta3, a1, a0, t_ot, wn_t, delta_t_LS, wn_LSF, delta_t_LSF }
 				},
 				62 => {
-					Subframe4::AntispoofConfigHealth
+					let mut antispoof_and_config:[u8; 32] = [0; 32];
+					for i in 0..32 {
+						antispoof_and_config[i] = utils::bool_slice_to_u8(&bits[(56+(i*4))..(60+(i*4))]);
+					}
+					let mut sv_health:[u8; 8] = [0; 8];
+					for i in 0..8 {
+						sv_health[i] = utils::bool_slice_to_u8(&bits[(186+(i*6))..(192+(i*6))])
+					}
+					Subframe4::Page25{ antispoof_and_config, sv_health }
 				},
 				_ => Subframe4::Reserved,
 			};

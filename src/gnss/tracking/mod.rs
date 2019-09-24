@@ -24,7 +24,7 @@ pub struct Tracking {
 	code_filter: filters::SecondOrderFIR,
 	lock_fail_count: usize,
 	lock_fail_limit: usize,
-	sample_buffer: VecDeque<Sample>,
+	sample_buffer: Vec<Sample>,
 	prompt_buffer: VecDeque<(Complex<f64>, usize)>,
 	state: TrackingState,
 	pub fs:f64,								// immutable
@@ -57,21 +57,11 @@ impl Tracking {
 		let next_len:usize = self.next_prn_length();
 		if self.sample_buffer.len() >= next_len {
 			// We have enough samples to produce the next PRN
-			let mut this_prn:Vec<Complex<f64>> = vec![];
-			if let Some((first_x, first_idx)) = self.sample_buffer.pop_front() {
-				this_prn.push(first_x);
-				while this_prn.len() < next_len {
-					if let Some((x, _)) = self.sample_buffer.pop_front() {
-						this_prn.push(x);
-					} else {
-						panic!("We thought we had enough samples in the buffer when we started building the PRN, but somehow ran out");
-					}
-				}
-				Some((this_prn, first_idx)) 
-		
-			} else {
-				panic!("The buffer length was greater than the required next length, but getting the first element somehow failed");
-			}
+			let this_prn:Vec<Complex<f64>> = self.sample_buffer.iter().map(|(c,_)| *c).collect();
+			let (_, first_idx) = self.sample_buffer[0];
+			self.sample_buffer.clear();
+
+			Some((this_prn, first_idx)) 
 		} else {
 			// Not enough samples in the buffer to produce the next PRN
 			None
@@ -116,7 +106,7 @@ impl Tracking {
 	/// Some, it'll contain a tuple with the next prompt value and the sample index where this symbol starts.
 	pub fn apply(&mut self, sample:Sample) -> Result<Option<(Complex<f64>, usize)>, DigSigProcErr> {
 		// Start by adding the new sample to the sample buffer
-		self.sample_buffer.push_back(sample);
+		self.sample_buffer.push(sample);
 
 		// If there's a new prompt value available, do correlation on it and add it to the prompt buffer
 		if let Some((prn, prn_idx)) = self.next_prn() {
@@ -219,10 +209,12 @@ pub fn new_default_tracker(prn:usize, acq_freq_hz:f64, fs:f64, bw_pll_hz:f64, bw
 	let carrier_filter = filters::new_second_order_fir((pdi + 2.0*tau2_car) / (2.0*tau1_car), (pdi - 2.0*tau2_car) / (2.0*tau1_car));
 	let code_filter    = filters::new_second_order_fir((pdi + 2.0*tau2_cod) / (2.0*tau1_cod), (pdi - 2.0*tau2_cod) / (2.0*tau1_cod));
 
+	let sample_buffer = vec![];
+
 	Tracking { carrier_phase, carrier_dphase_rad, code_phase, code_dphase,
 		carrier_filter, code_filter,
 		lock_fail_count: 0, lock_fail_limit: 50, 
-		sample_buffer: VecDeque::new(), 
+		sample_buffer, 
 		prompt_buffer: VecDeque::new(), 
 		state: TrackingState::WaitingForInitialLockStatus,
 		fs, local_code, threshold_carrier_lock_test: 0.8, threshold_cn0_snv_db_hz: 30.0

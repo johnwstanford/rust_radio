@@ -76,13 +76,14 @@ impl Channel {
 						},
 						telemetry_decode::gps::TelemetryDecoderResult::NotReady => ChannelResult::NotReady("Have a new bit, but new subframe not yet ready"),
 						telemetry_decode::gps::TelemetryDecoderResult::Err(e) => {
+							self.state = ChannelState::Acquisition;
 							ChannelResult::Err(e)
 						}
 					}					
 				},
 				tracking::TrackingResult::NotReady => ChannelResult::NotReady("Waiting on next bit from tracker"),
 				tracking::TrackingResult::Err(e) => {
-					//self.state = ChannelState::Failed(e);
+					self.state = ChannelState::Acquisition;
 					ChannelResult::Err(e)
 				},
 			}

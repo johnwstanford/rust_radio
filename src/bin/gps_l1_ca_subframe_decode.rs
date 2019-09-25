@@ -34,10 +34,6 @@ fn main() {
 			.short("t").long("type")
 			.takes_value(true)
 			.possible_value("i16"))
-		.arg(Arg::with_name("acq_samples_to_try")
-			.short("a").long("acq_samples_to_try")
-			.help("Defaults to 2e5")
-			.takes_value(true))
 		.arg(Arg::with_name("sample_rate_sps")
 			.short("s").long("sample_rate_sps")
 			.takes_value(true).required(true))
@@ -54,6 +50,8 @@ fn main() {
 		let mut signal = io::file_source_i16_complex(&fname);
 		let mut chn = channel::new_default_channel(prn, fs, 0.0);
 		let mut nav_data_buffer:Vec<(String, gps::l1_ca_subframe::Subframe, usize)> = vec![];
+		let mut last_acq_doppler_hz:i16 = 0;
+		let mut last_acq_test_stat:f64 = 0.0;
 
 		while let Some(s) = signal.next() {
 
@@ -61,44 +59,29 @@ fn main() {
 				channel::ChannelResult::Acquisition{ doppler_hz, test_stat } => {
 					// We've acquired a satellite and we'll stay in this block until we run out of data or loose the lock
 					eprintln!("{}", format!("  PRN {}: Acquired at {} [Hz] doppler, {} test statistic, attempting to track", prn, doppler_hz, test_stat).green());
+					last_acq_doppler_hz = doppler_hz;
+					last_acq_test_stat = test_stat;
 
 					// Create a new channel to track the signal and decode the subframes
 					nav_data_buffer.clear();
-
-					while let Some(sample) = signal.next() {
-						// While we have samples available in the signal
-
-						match chn.apply(sample) {
-							channel::ChannelResult::Acquisition{doppler_hz:_, test_stat:_ } => panic!("Shouldn't be in Acquisition here"),
-							channel::ChannelResult::Ok(hex, sf, start_idx) => {
-								let subframe_str = format!("{:?}", sf).blue();
-								eprintln!("    {}", subframe_str);
-								nav_data_buffer.push((hex, sf, start_idx))
-							},
-							channel::ChannelResult::NotReady(_) => { 
-								//println!("{}", status); 
-							},
-							channel::ChannelResult::Err(e) => {
-								// The tracking block reported a loss of lock
-								eprintln!("{}", format!("  Loss of lock due to {:?}", e).red());
-								chn.state = channel::ChannelState::Acquisition;
-								break;
-							}
-						}
-					}
-
-					// Store the results of this acquisition if subframes were found
-					if nav_data_buffer.len() > 0 {
-						let nav_data = nav_data_buffer.drain(..).collect();
-						let this_result = Result{ prn, acq_doppler_hz: doppler_hz, acq_test_statistic: test_stat, final_doppler_hz: chn.carrier_freq_hz(), nav_data };
-						all_results.push(this_result);
-					}
 				},
+				channel::ChannelResult::Ok(hex, sf, start_idx) => {
+					let subframe_str = format!("{:?}", sf).blue();
+					eprintln!("    {}", subframe_str);
+					nav_data_buffer.push((hex, sf, start_idx))
+				},
+				channel::ChannelResult::Err(e) => eprintln!("{}", format!("  Error due to {:?}", e).red()),
 				_ => {}
 			}
 
 		}
 
+		// Store the results if subframes were found
+		if nav_data_buffer.len() > 0 {
+			let nav_data = nav_data_buffer.drain(..).collect();
+			let this_result = Result{ prn, acq_doppler_hz: last_acq_doppler_hz, acq_test_statistic: last_acq_test_stat, final_doppler_hz: chn.carrier_freq_hz(), nav_data };
+			all_results.push(this_result);
+		}
 	}
 
 	// This is the only output to STDOUT.  This allows you to pipe the results to a JSON file, but still see the status updates through STDERR as the code runs.

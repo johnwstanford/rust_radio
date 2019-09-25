@@ -9,8 +9,7 @@ extern crate serde;
 use clap::{Arg, App};
 use colored::*;
 use rust_radio::io;
-use rust_radio::gnss::{acquisition, channel};
-use rust_radio::gnss::gps::l1_ca_signal;
+use rust_radio::gnss::channel;
 use rust_radio::gnss::telemetry_decode::gps;
 use serde::{Serialize, Deserialize};
 
@@ -59,16 +58,14 @@ fn main() {
 	for prn in 1..=32 {
 		eprintln!("  PRN {}: Searching...", prn);
 		let mut signal = io::file_source_i16_complex(&fname);
-		let symbol:Vec<i8> = l1_ca_signal::prn_int_sampled(prn, fs);
-		let mut acq = acquisition::make_acquisition(symbol, fs, 50, 10000, 0.008);
 		let mut chn = channel::new_default_channel(prn, fs, 0.0, 0);
 		let mut nav_data_buffer:Vec<(String, gps::l1_ca_subframe::Subframe, usize)> = vec![];
 		let mut acq_samples_so_far:usize = 1;
 
-		while let Some((x, _)) = signal.next() {
+		while let Some(s) = signal.next() {
 			acq_samples_so_far += 1;
 
-			if let Some(r) = acq.apply(x) {
+			if let Some(r) = chn.acq.apply(s.0) {
 				// We've acquired a satellite and we'll stay in this block until we run out of data or loose the lock
 				eprintln!("{}", format!("  PRN {}: Acquired at {} [Hz] doppler, {} test statistic, attempting to track", prn, r.doppler_hz, r.test_statistic).green());
 
@@ -85,21 +82,25 @@ fn main() {
 							eprintln!("    {}", subframe_str);
 							nav_data_buffer.push((hex, sf, start_idx))
 						},
-						channel::ChannelResult::NotReady => {},
+						channel::ChannelResult::NotReady(_) => { 
+							//println!("{}", status); 
+						},
 						channel::ChannelResult::Err(e) => {
 							// The tracking block reported a loss of lock
 							eprintln!("{}", format!("  Loss of lock due to {:?}, {} of {}", e, acq_samples_so_far, acq_samples_to_try).red());
+
+							// Store the results of this acquisition if subframes were found
+							if nav_data_buffer.len() > 0 {
+								let nav_data = nav_data_buffer.drain(..).collect();
+								let this_result = Result{ prn, acq_doppler_hz: r.doppler_hz, acq_test_statistic: r.test_statistic, final_doppler_hz: chn.carrier_freq_hz(), nav_data };
+								all_results.push(this_result);
+							}
+
 							break;
 						}
 					}
 				}
 
-				// Store the results of this acquisition if subframes were found
-				if nav_data_buffer.len() > 0 {
-					let nav_data = nav_data_buffer.drain(..).collect();
-					let this_result = Result{ prn, acq_doppler_hz: r.doppler_hz, acq_test_statistic: r.test_statistic, final_doppler_hz: chn.carrier_freq_hz(), nav_data };
-					all_results.push(this_result);
-				}
 			}
 
 			if acq_samples_so_far > acq_samples_to_try { break; }

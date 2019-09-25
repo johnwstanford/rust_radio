@@ -47,7 +47,7 @@ fn data_recover(subframe:[bool; SUBFRAME_SIZE_W_PARITY_BITS]) -> Result<[bool; S
 	   !parity_check(&subframe[210..240].to_vec(), subframe[208], subframe[209]) ||
 	   !parity_check(&subframe[240..270].to_vec(), subframe[238], subframe[239]) ||
 	   !parity_check(&subframe[270..300].to_vec(), subframe[268], subframe[269])
-	   { return Err(DigSigProcErr::InvalidTelemetryData); }
+	   { return Err(DigSigProcErr::InvalidTelemetryData("Bad parity check")); }
 
 	for bit_idx in 0..24 { ans[bit_idx] = subframe[bit_idx]; }
 	for sf_idx in 1..10 {
@@ -115,13 +115,13 @@ impl TelemetryDecoder {
 							for i in 1..SUBFRAME_SIZE_W_PARITY_BITS {
 								match self.detection_buffer.pop_front() {
 									Some((b, _)) => next_subframe[i] = b ^ is_inverse_sense,
-									None => return Err(DigSigProcErr::InvalidTelemetryData),
+									None => return Err(DigSigProcErr::InvalidTelemetryData("Not enough bits in detection_buffer")),
 								}
 							}
 							Ok(Some((data_recover(next_subframe)?, first_idx)))			
 						},
 						None => {
-							Err(DigSigProcErr::InvalidTelemetryData)
+							Err(DigSigProcErr::InvalidTelemetryData("Not enough bits in detection_buffer"))
 						}
 
 					}

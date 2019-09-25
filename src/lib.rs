@@ -76,5 +76,5 @@ pub mod utils {
 pub enum DigSigProcErr {
     NoSourceData,
     LossOfLock,
-    InvalidTelemetryData,
+    InvalidTelemetryData(&'static str),
 }

@@ -55,14 +55,14 @@ impl PreambleDetector {
 	pub fn get_result(&self) -> Result<usize, DigSigProcErr> {
 		match self.preamble_location {
 			Some(x) => Ok(x),
-			None    => Err(DigSigProcErr::InvalidTelemetryData),
+			None    => Err(DigSigProcErr::InvalidTelemetryData("Preamble not yet detected, result not available")),
 		}
 	}
 
 	pub fn is_inverse_sense(&self) -> Result<bool, DigSigProcErr> {
 		match self.inverse_sense {
 			Some(b) => Ok(b),
-			None    => Err(DigSigProcErr::InvalidTelemetryData),
+			None    => Err(DigSigProcErr::InvalidTelemetryData("Preamble not yet detected, inverse_sense not available")),
 		}
 	}
 }

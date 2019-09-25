@@ -4,8 +4,9 @@ extern crate rustfft;
 use self::rustfft::num_complex::Complex;
 
 use ::DigSigProcErr;
-use ::gnss::{tracking, telemetry_decode};
+use ::gnss::{acquisition, tracking, telemetry_decode};
 use ::gnss::telemetry_decode::gps::l1_ca_subframe;
+use ::gnss::gps::l1_ca_signal;
 use ::utils;
 
 pub const DEFAULT_PLL_BW_HZ:f64 = 40.0;
@@ -14,13 +15,14 @@ pub const DEFAULT_DLL_BW_HZ:f64 = 4.0;
 type Sample = (Complex<f64>, usize);
 
 pub enum ChannelState {
+	Acquisition,
 	PullIn(usize),
 	Tracking,
 }
 
 #[derive(Debug)]
 pub enum ChannelResult {
-	NotReady,
+	NotReady(&'static str),
 	Ok(String, l1_ca_subframe::Subframe, usize),
 	Err(DigSigProcErr),
 }
@@ -29,6 +31,7 @@ pub struct Channel {
 	pub prn:usize,
 	pub fs:f64,
 	pub state:ChannelState,
+	pub acq: acquisition::Acquisition,
 	trk: tracking::Tracking,
 	tlm: telemetry_decode::gps::TelemetryDecoder,
 }
@@ -47,12 +50,16 @@ impl Channel {
 	}
 
 	pub fn apply(&mut self, s:Sample) -> ChannelResult { match self.state {
+		ChannelState::Acquisition => {
+
+			ChannelResult::NotReady("Waiting on acquisition")
+		},
 		ChannelState::PullIn(n) => {
 			self.state = match n {
 				1 => ChannelState::Tracking,
 				_ => ChannelState::PullIn(n-1),
 			};
-			ChannelResult::NotReady
+			ChannelResult::NotReady("Pulling in signal")
 		},
 		ChannelState::Tracking => { 
 			match self.trk.apply(s) {
@@ -73,14 +80,14 @@ impl Channel {
 								}
 							}
 						},
-						Ok(None) => ChannelResult::NotReady,
+						Ok(None) => ChannelResult::NotReady("Have a new bit, but new subframe not yet ready"),
 						Err(e) => {
 							//self.state = ChannelState::Failed(e);
 							ChannelResult::Err(e)
 						}
 					}					
 				},
-				tracking::TrackingResult::NotReady => ChannelResult::NotReady,
+				tracking::TrackingResult::NotReady => ChannelResult::NotReady("Waiting on next bit from tracker"),
 				tracking::TrackingResult::Err(e) => {
 					//self.state = ChannelState::Failed(e);
 					ChannelResult::Err(e)
@@ -96,8 +103,10 @@ pub fn new_default_channel(prn:usize, fs:f64, acq_freq:f64, code_phase:usize) ->
 		0 => ChannelState::Tracking,
 		n => ChannelState::PullIn(n),
 	};
+	let symbol:Vec<i8> = l1_ca_signal::prn_int_sampled(prn, fs);
+	let acq = acquisition::make_acquisition(symbol, fs, 50, 10000, 0.008);
 	let trk = tracking::new_default_tracker(prn, acq_freq, fs, DEFAULT_PLL_BW_HZ, DEFAULT_DLL_BW_HZ);
 	let tlm = telemetry_decode::gps::TelemetryDecoder::new();
 
-	Channel{ prn, fs, state, trk, tlm }
+	Channel{ prn, fs, state, acq, trk, tlm }
 }

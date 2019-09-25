@@ -58,7 +58,7 @@ pub fn decode(bits:[bool; 240], start_sample_idx:usize) -> Result<Subframe, DigS
 				(false, false) => CodeOnL2::Reserved,
 				(false, true ) => CodeOnL2::P_Code,
 				(true,  false) => CodeOnL2::CA_Code,
-				(true,  true ) => return Err(DigSigProcErr::InvalidTelemetryData),
+				(true,  true ) => return Err(DigSigProcErr::InvalidTelemetryData("Invalid code_on_l2 field in subframe 1")),
 			};
 			let ura_index:u8 =  utils::bool_slice_to_u8(&bits[60..64]);
 			let sv_health:u8 =  utils::bool_slice_to_u8(&bits[64..70]);
@@ -191,10 +191,10 @@ pub fn decode(bits:[bool; 240], start_sample_idx:usize) -> Result<Subframe, DigS
 					}
 					Subframe5::Page25{t_oa, WN_a, sv_health}
 				},
-				_ => return Err(DigSigProcErr::InvalidTelemetryData),
+				_ => return Err(DigSigProcErr::InvalidTelemetryData("Page number other than 1 through 25")),
 			};
 			Ok(Subframe::Subframe5{ common, data_id, sv_id, page })
 		},
-		_ => Err(DigSigProcErr::InvalidTelemetryData),
+		_ => Err(DigSigProcErr::InvalidTelemetryData("Subframe number other than 1 through 5")),
 	}
 }

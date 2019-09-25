@@ -16,7 +16,6 @@ type Sample = (Complex<f64>, usize);
 pub enum ChannelState {
 	PullIn(usize),
 	Tracking,
-	Failed(DigSigProcErr),
 }
 
 #[derive(Debug)]
@@ -37,6 +36,15 @@ pub struct Channel {
 impl Channel {
 
 	pub fn carrier_freq_hz(&self) -> f64 { self.trk.carrier_freq_hz() }
+
+	pub fn initialize(&mut self, acq_freq:f64, code_phase:usize) {
+		self.state = match code_phase {
+			0 => ChannelState::Tracking,
+			n => ChannelState::PullIn(n),
+		};
+		self.trk.initialize(acq_freq);
+		self.tlm.initialize();
+	}
 
 	pub fn apply(&mut self, s:Sample) -> ChannelResult { match self.state {
 		ChannelState::PullIn(n) => {
@@ -60,26 +68,25 @@ impl Channel {
 									ChannelResult::Ok(bytes.join(""), sf, start_idx)
 								},
 								Err(e) => {
-									self.state = ChannelState::Failed(e);
+									//self.state = ChannelState::Failed(e);
 									ChannelResult::Err(e)
 								}
 							}
 						},
 						Ok(None) => ChannelResult::NotReady,
 						Err(e) => {
-							self.state = ChannelState::Failed(e);
+							//self.state = ChannelState::Failed(e);
 							ChannelResult::Err(e)
 						}
 					}					
 				},
 				tracking::TrackingResult::NotReady => ChannelResult::NotReady,
 				tracking::TrackingResult::Err(e) => {
-					self.state = ChannelState::Failed(e);
+					//self.state = ChannelState::Failed(e);
 					ChannelResult::Err(e)
 				},
 			}
-		},
-		ChannelState::Failed(e) => ChannelResult::Err(e)
+		}
 	}}
 
 }

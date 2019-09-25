@@ -71,6 +71,12 @@ impl TelemetryDecoder {
 						  state: TelemetryDecoderState::LookingForPreamble }
 	}
 
+	pub fn initialize(&mut self) {
+		self.detector.initialize();
+		self.detection_buffer.clear();
+		self.state = TelemetryDecoderState::LookingForPreamble;
+	}
+
 	/// Takes a bit tuple in the form of a boolean representing a bit and a usize representing the sample index where this symbol started.
 	/// Returns a Result that is Err is some kind of invalid telemetry data was detected.  If this method returns Ok, it'll be an Option.
 	/// If the Option is None, it means that the next subframe isn't ready yet.  If it's Some, it'll be a tuple of an array with the bits

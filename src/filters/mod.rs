@@ -39,6 +39,11 @@ pub fn new_second_order_fir(b0: f64, b1: f64) -> SecondOrderFIR {
 
 impl SecondOrderFIR {
 
+	pub fn initialize(&mut self) {
+		self.x0 = 0.0;
+		self.x1 = 0.0;
+	}
+
 	pub fn apply(&mut self, x:f64) -> f64 {
 		self.x1 = self.x0;
 		self.x0 = x;

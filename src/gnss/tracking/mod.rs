@@ -186,6 +186,29 @@ impl Tracking {
 
 	pub fn carrier_freq_hz(&self) -> f64 { (self.carrier_dphase_rad * self.fs) / (2.0 * consts::PI) }
 
+	pub fn initialize(&mut self, acq_freq_hz:f64) {
+
+		let acq_carrier_rad_per_sec = acq_freq_hz * 2.0 * consts::PI;
+		self.carrier_phase      = Complex{ re: 1.0, im: 0.0};
+		self.carrier_dphase_rad = acq_carrier_rad_per_sec / self.fs;
+
+		let radial_velocity_factor:f64 = (1.57542e9 + acq_freq_hz) / 1.57542e9;
+		self.code_phase = 0.0;
+		self.code_dphase = (radial_velocity_factor * 1.023e6) / self.fs;
+
+		self.carrier_filter.initialize();
+		self.code_filter.initialize();
+
+		self.lock_fail_count = 0;
+
+		self.sample_buffer.clear();
+		self.prompt_buffer.clear();
+
+		self.state = TrackingState::WaitingForInitialLockStatus;
+
+		// Leave lock_fail_limit, fs, local_code, threshold_carrier_lock_test, and threshold_cn0_snv_db_hz as is
+	}
+
 }
 
 pub fn new_default_tracker(prn:usize, acq_freq_hz:f64, fs:f64, bw_pll_hz:f64, bw_dll_hz:f64) -> Tracking {

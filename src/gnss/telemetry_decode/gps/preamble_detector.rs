@@ -18,6 +18,13 @@ pub fn new_preamble_detector() -> PreambleDetector {
 
 impl PreambleDetector {
 
+	pub fn initialize(&mut self) {
+		self.buffer.clear();
+		self.current_bit = 0;
+		self.inverse_sense = None;
+		self.preamble_location = None;
+	}
+
 	pub fn apply(&mut self, b:bool) {
 		self.buffer.push_back(b);
 		self.current_bit += 1;

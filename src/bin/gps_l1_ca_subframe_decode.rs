@@ -61,6 +61,7 @@ fn main() {
 		let mut signal = io::file_source_i16_complex(&fname);
 		let symbol:Vec<i8> = l1_ca_signal::prn_int_sampled(prn, fs);
 		let mut acq = acquisition::make_acquisition(symbol, fs, 50, 10000, 0.008);
+		let mut chn = channel::new_default_channel(prn, fs, 0.0, 0);
 		let mut acq_samples_so_far:usize = 1;
 
 		while let Some((x, _)) = signal.next() {
@@ -71,7 +72,7 @@ fn main() {
 				eprintln!("{}", format!("  PRN {}: Acquired at {} [Hz] doppler, {} test statistic, attempting to track", prn, r.doppler_hz, r.test_statistic).green());
 
 				// Create a new channel to track the signal and decode the subframes
-				let mut chn = channel::new_default_channel(prn, fs, r.doppler_hz as f64, r.code_phase);
+				chn.initialize(r.doppler_hz as f64, r.code_phase);
 				let mut nav_data:Vec<(String, gps::l1_ca_subframe::Subframe, usize)> = vec![];
 
 				while let Some(sample) = signal.next() {

@@ -65,41 +65,45 @@ fn main() {
 		while let Some(s) = signal.next() {
 			acq_samples_so_far += 1;
 
-			if let Some(r) = chn.acq.apply(s.0) {
-				// We've acquired a satellite and we'll stay in this block until we run out of data or loose the lock
-				eprintln!("{}", format!("  PRN {}: Acquired at {} [Hz] doppler, {} test statistic, attempting to track", prn, r.doppler_hz, r.test_statistic).green());
+			chn.state = channel::ChannelState::Acquisition;
+			match chn.apply(s) {
+				channel::ChannelResult::Acquisition{ doppler_hz, test_stat, code_phase } => {
+					// We've acquired a satellite and we'll stay in this block until we run out of data or loose the lock
+					eprintln!("{}", format!("  PRN {}: Acquired at {} [Hz] doppler, {} test statistic, attempting to track", prn, doppler_hz, test_stat).green());
 
-				// Create a new channel to track the signal and decode the subframes
-				chn.initialize(r.doppler_hz as f64, r.code_phase);
-				nav_data_buffer.clear();
+					// Create a new channel to track the signal and decode the subframes
+					chn.initialize(doppler_hz as f64, code_phase);
+					nav_data_buffer.clear();
 
-				while let Some(sample) = signal.next() {
-					// While we have samples available in the signal
+					while let Some(sample) = signal.next() {
+						// While we have samples available in the signal
 
-					match chn.apply(sample) {
-						channel::ChannelResult::Ok(hex, sf, start_idx) => {
-							let subframe_str = format!("{:?}", sf).blue();
-							eprintln!("    {}", subframe_str);
-							nav_data_buffer.push((hex, sf, start_idx))
-						},
-						channel::ChannelResult::NotReady(_) => { 
-							//println!("{}", status); 
-						},
-						channel::ChannelResult::Err(e) => {
-							// The tracking block reported a loss of lock
-							eprintln!("{}", format!("  Loss of lock due to {:?}, {} of {}", e, acq_samples_so_far, acq_samples_to_try).red());
-							break;
+						match chn.apply(sample) {
+							channel::ChannelResult::Acquisition{doppler_hz:_, test_stat:_, code_phase:_} => panic!("Shouldn't be in Acquisition here"),
+							channel::ChannelResult::Ok(hex, sf, start_idx) => {
+								let subframe_str = format!("{:?}", sf).blue();
+								eprintln!("    {}", subframe_str);
+								nav_data_buffer.push((hex, sf, start_idx))
+							},
+							channel::ChannelResult::NotReady(_) => { 
+								//println!("{}", status); 
+							},
+							channel::ChannelResult::Err(e) => {
+								// The tracking block reported a loss of lock
+								eprintln!("{}", format!("  Loss of lock due to {:?}, {} of {}", e, acq_samples_so_far, acq_samples_to_try).red());
+								break;
+							}
 						}
 					}
-				}
 
-				// Store the results of this acquisition if subframes were found
-				if nav_data_buffer.len() > 0 {
-					let nav_data = nav_data_buffer.drain(..).collect();
-					let this_result = Result{ prn, acq_doppler_hz: r.doppler_hz, acq_test_statistic: r.test_statistic, final_doppler_hz: chn.carrier_freq_hz(), nav_data };
-					all_results.push(this_result);
-				}
-
+					// Store the results of this acquisition if subframes were found
+					if nav_data_buffer.len() > 0 {
+						let nav_data = nav_data_buffer.drain(..).collect();
+						let this_result = Result{ prn, acq_doppler_hz: doppler_hz, acq_test_statistic: test_stat, final_doppler_hz: chn.carrier_freq_hz(), nav_data };
+						all_results.push(this_result);
+					}
+				},
+				_ => {}
 			}
 
 			if acq_samples_so_far > acq_samples_to_try { break; }

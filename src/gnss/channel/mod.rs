@@ -23,6 +23,7 @@ pub enum ChannelState {
 #[derive(Debug)]
 pub enum ChannelResult {
 	NotReady(&'static str),
+	Acquisition{ doppler_hz:i16, test_stat:f64, code_phase:usize },
 	Ok(String, l1_ca_subframe::Subframe, usize),
 	Err(DigSigProcErr),
 }
@@ -51,8 +52,10 @@ impl Channel {
 
 	pub fn apply(&mut self, s:Sample) -> ChannelResult { match self.state {
 		ChannelState::Acquisition => {
-
-			ChannelResult::NotReady("Waiting on acquisition")
+			if let Some(r) = self.acq.apply(s.0) {
+				ChannelResult::Acquisition{ doppler_hz: r.doppler_hz, test_stat: r.test_statistic, code_phase: r.code_phase }
+			}
+			else { ChannelResult::NotReady("Waiting on acquisition") }
 		},
 		ChannelState::PullIn(n) => {
 			self.state = match n {

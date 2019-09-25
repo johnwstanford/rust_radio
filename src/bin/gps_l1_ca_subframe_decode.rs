@@ -62,6 +62,7 @@ fn main() {
 		let symbol:Vec<i8> = l1_ca_signal::prn_int_sampled(prn, fs);
 		let mut acq = acquisition::make_acquisition(symbol, fs, 50, 10000, 0.008);
 		let mut chn = channel::new_default_channel(prn, fs, 0.0, 0);
+		let mut nav_data_buffer:Vec<(String, gps::l1_ca_subframe::Subframe, usize)> = vec![];
 		let mut acq_samples_so_far:usize = 1;
 
 		while let Some((x, _)) = signal.next() {
@@ -73,7 +74,7 @@ fn main() {
 
 				// Create a new channel to track the signal and decode the subframes
 				chn.initialize(r.doppler_hz as f64, r.code_phase);
-				let mut nav_data:Vec<(String, gps::l1_ca_subframe::Subframe, usize)> = vec![];
+				nav_data_buffer.clear();
 
 				while let Some(sample) = signal.next() {
 					// While we have samples available in the signal
@@ -82,7 +83,7 @@ fn main() {
 						channel::ChannelResult::Ok(hex, sf, start_idx) => {
 							let subframe_str = format!("{:?}", sf).blue();
 							eprintln!("    {}", subframe_str);
-							nav_data.push((hex, sf, start_idx))
+							nav_data_buffer.push((hex, sf, start_idx))
 						},
 						channel::ChannelResult::NotReady => {},
 						channel::ChannelResult::Err(e) => {
@@ -94,18 +95,14 @@ fn main() {
 				}
 
 				// Store the results of this acquisition if subframes were found
-				if nav_data.len() > 0 {
+				if nav_data_buffer.len() > 0 {
+					let nav_data = nav_data_buffer.drain(..).collect();
 					let this_result = Result{ prn, acq_doppler_hz: r.doppler_hz, acq_test_statistic: r.test_statistic, final_doppler_hz: chn.carrier_freq_hz(), nav_data };
 					all_results.push(this_result);
 				}
 			}
 
-			if acq_samples_so_far > acq_samples_to_try { 
-				break; 
-			}
-			if acq_samples_so_far%20000 == 0 {
-				eprintln!("{}", format!("  No acquisition, {} of {} samples", acq_samples_so_far, acq_samples_to_try).red());
-			}
+			if acq_samples_so_far > acq_samples_to_try { break; }
 		}
 
 	}

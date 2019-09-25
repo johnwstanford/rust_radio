@@ -63,6 +63,12 @@ pub struct TelemetryDecoder {
 	state: TelemetryDecoderState,
 }
 
+pub enum TelemetryDecoderResult {
+	NotReady,
+	Ok(l1_ca_subframe::Subframe, [bool; SUBFRAME_SIZE_DATA_ONLY_BITS], usize),
+	Err(DigSigProcErr),
+}
+
 impl TelemetryDecoder {
 
 	pub fn new() -> TelemetryDecoder {
@@ -81,7 +87,7 @@ impl TelemetryDecoder {
 	/// Returns a Result that is Err is some kind of invalid telemetry data was detected.  If this method returns Ok, it'll be an Option.
 	/// If the Option is None, it means that the next subframe isn't ready yet.  If it's Some, it'll be a tuple of an array with the bits
 	/// in the subframe and a usize with the sample index where the subframe starts
-	pub fn apply(&mut self, bit:(bool, usize)) -> Result<Option<([bool; SUBFRAME_SIZE_DATA_ONLY_BITS], usize)>, DigSigProcErr> {
+	pub fn apply(&mut self, bit:(bool, usize)) -> TelemetryDecoderResult {
 		match self.state {
 			TelemetryDecoderState::LookingForPreamble => {
 				self.detector.apply(bit.0);
@@ -95,12 +101,12 @@ impl TelemetryDecoder {
 						for _ in 0..bit_locations { self.detection_buffer.pop_front(); }
 						
 						// TODO account for the fact that there might be a few subframes available in the buffer; for now, just return it next method call
-						Ok(None)
+						TelemetryDecoderResult::NotReady
 					},
 					(_, _) => {
 						// Preamble not yet detected, don't change state
 						// TODO: panic or return Err if one if Ok(_) but not the other
-						Ok(None)
+						TelemetryDecoderResult::NotReady
 					}
 				}
 			},
@@ -115,17 +121,25 @@ impl TelemetryDecoder {
 							for i in 1..SUBFRAME_SIZE_W_PARITY_BITS {
 								match self.detection_buffer.pop_front() {
 									Some((b, _)) => next_subframe[i] = b ^ is_inverse_sense,
-									None => return Err(DigSigProcErr::InvalidTelemetryData("Not enough bits in detection_buffer")),
+									None => return TelemetryDecoderResult::Err(DigSigProcErr::InvalidTelemetryData("Not enough bits in detection_buffer")),
 								}
 							}
-							Ok(Some((data_recover(next_subframe)?, first_idx)))			
+							match data_recover(next_subframe) {
+								Ok(bits) => {
+									match l1_ca_subframe::decode(bits, first_idx) {
+										Ok(sf) => TelemetryDecoderResult::Ok(sf, bits, first_idx),
+										Err(e) => TelemetryDecoderResult::Err(e)		
+									}
+								},
+								Err(e) => TelemetryDecoderResult::Err(e)
+							}
 						},
 						None => {
-							Err(DigSigProcErr::InvalidTelemetryData("Not enough bits in detection_buffer"))
+							TelemetryDecoderResult::Err(DigSigProcErr::InvalidTelemetryData("Not enough bits in detection_buffer"))
 						}
 
 					}
-				} else { Ok(None) }
+				} else { TelemetryDecoderResult::NotReady }
 
 			},
 		}

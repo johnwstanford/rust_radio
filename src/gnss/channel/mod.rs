@@ -66,23 +66,12 @@ impl Channel {
 				tracking::TrackingResult::Ok{bit, bit_idx} => {
 					// The tracker has a lock and produced a bit, so pass it into the telemetry decoder and match on the result
 					match self.tlm.apply((bit, bit_idx)) {
-						Ok(Some((subframe, start_idx))) => {
-							// The telemetry decoder successfully decoded a subframe, but we just have a sequence of bits right now.  We need to interpret them.
-							match l1_ca_subframe::decode(subframe, start_idx) {
-								Ok(sf) => {
-									// The bits of this subframe have been successfully interpreted.  Output the results to STDERR and store them in nav_data
-									let bytes:Vec<String> = utils::bool_slice_to_byte_vec(&subframe).iter().map(|b| format!("{:02X}", b)).collect();
-									ChannelResult::Ok(bytes.join(""), sf, start_idx)
-								},
-								Err(e) => {
-									//self.state = ChannelState::Failed(e);
-									ChannelResult::Err(e)
-								}
-							}
+						telemetry_decode::gps::TelemetryDecoderResult::Ok(sf, bits, start_idx) => {
+							let bytes:Vec<String> = utils::bool_slice_to_byte_vec(&bits).iter().map(|b| format!("{:02X}", b)).collect();
+							ChannelResult::Ok(bytes.join(""), sf, start_idx)							
 						},
-						Ok(None) => ChannelResult::NotReady("Have a new bit, but new subframe not yet ready"),
-						Err(e) => {
-							//self.state = ChannelState::Failed(e);
+						telemetry_decode::gps::TelemetryDecoderResult::NotReady => ChannelResult::NotReady("Have a new bit, but new subframe not yet ready"),
+						telemetry_decode::gps::TelemetryDecoderResult::Err(e) => {
 							ChannelResult::Err(e)
 						}
 					}					

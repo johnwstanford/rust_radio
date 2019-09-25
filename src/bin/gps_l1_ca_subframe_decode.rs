@@ -70,11 +70,8 @@ fn main() {
 				// We've acquired a satellite and we'll stay in this block until we run out of data or loose the lock
 				eprintln!("{}", format!("  PRN {}: Acquired at {} [Hz] doppler, {} test statistic, attempting to track", prn, r.doppler_hz, r.test_statistic).green());
 
-				// Drop the number of samples required to get us to the start of the next PRN symbol
-				signal.drop(r.code_phase);
-				
 				// Create a new channel to track the signal and decode the subframes
-				let mut chn = channel::new_default_channel(prn, fs, r.doppler_hz as f64);
+				let mut chn = channel::new_default_channel(prn, fs, r.doppler_hz as f64, r.code_phase);
 				let mut nav_data:Vec<(String, gps::l1_ca_subframe::Subframe, usize)> = vec![];
 
 				while let Some(sample) = signal.next() {

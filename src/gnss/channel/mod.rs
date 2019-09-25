@@ -4,7 +4,6 @@ extern crate rustfft;
 use self::rustfft::num_complex::Complex;
 
 use ::DigSigProcErr;
-use ::gnss::gps::l1_ca_signal;
 use ::gnss::{tracking, telemetry_decode};
 use ::gnss::telemetry_decode::gps::l1_ca_subframe;
 use ::utils;
@@ -15,6 +14,7 @@ pub const DEFAULT_DLL_BW_HZ:f64 = 4.0;
 type Sample = (Complex<f64>, usize);
 
 pub enum ChannelState {
+	PullIn(usize),
 	Tracking,
 	Failed(DigSigProcErr),
 }
@@ -39,6 +39,13 @@ impl Channel {
 	pub fn carrier_freq_hz(&self) -> f64 { self.trk.carrier_freq_hz() }
 
 	pub fn apply(&mut self, s:Sample) -> ChannelResult { match self.state {
+		ChannelState::PullIn(n) => {
+			self.state = match n {
+				1 => ChannelState::Tracking,
+				_ => ChannelState::PullIn(n-1),
+			};
+			ChannelResult::NotReady
+		},
 		ChannelState::Tracking => { 
 			match self.trk.apply(s) {
 				tracking::TrackingResult::Ok{bit, bit_idx} => {
@@ -77,8 +84,11 @@ impl Channel {
 
 }
 
-pub fn new_default_channel(prn:usize, fs:f64, acq_freq:f64) -> Channel {
-	let state = ChannelState::Tracking;
+pub fn new_default_channel(prn:usize, fs:f64, acq_freq:f64, code_phase:usize) -> Channel {
+	let state = match code_phase {
+		0 => ChannelState::Tracking,
+		n => ChannelState::PullIn(n),
+	};
 	let trk = tracking::new_default_tracker(prn, acq_freq, fs, DEFAULT_PLL_BW_HZ, DEFAULT_DLL_BW_HZ);
 	let tlm = telemetry_decode::gps::TelemetryDecoder::new();
 

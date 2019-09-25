@@ -9,10 +9,9 @@ extern crate serde;
 use clap::{Arg, App};
 use colored::*;
 use rust_radio::io;
-use rust_radio::gnss::{acquisition, tracking};
+use rust_radio::gnss::{acquisition, channel};
 use rust_radio::gnss::gps::l1_ca_signal;
 use rust_radio::gnss::telemetry_decode::gps;
-use rust_radio::utils;
 use serde::{Serialize, Deserialize};
 
 const DEFAULT_ACQ_SAMPLES_TO_TRY:usize = 200_000;
@@ -74,50 +73,21 @@ fn main() {
 				// Drop the number of samples required to get us to the start of the next PRN symbol
 				signal.drop(r.code_phase);
 				
-				// Create a new tracker to track the signal we just acquired
-				let mut trk = tracking::new_default_tracker(prn, r.doppler_hz as f64, fs, 40.0, 4.0);
-
-				// Create a GPS L1 C/A telemetry decoder and a vector to store the decoded subframes
-				let mut tlm = gps::TelemetryDecoder::new();
+				// Create a new channel to track the signal and decode the subframes
+				let mut chn = channel::new_default_channel(prn, fs, r.doppler_hz as f64);
 				let mut nav_data:Vec<(String, gps::l1_ca_subframe::Subframe, usize)> = vec![];
 
 				while let Some(sample) = signal.next() {
 					// While we have samples available in the signal
 
-					match trk.apply(sample) {
-						tracking::TrackingResult::Ok{bit, bit_idx} => {
-							// While the tracker still has a lock and keeps producing prompt values, pass them into the telemetry decoder and match on the result
-							match tlm.apply((bit, bit_idx)) {
-								Ok(Some((subframe, start_idx))) => {
-									// The telemetry decoder successfully decoded a subframe, but we just have a sequence of bits right now.  We need to interpret them.
-									if let Ok(sf) = gps::l1_ca_subframe::decode(subframe, start_idx) {
-										// The bits of this subframe have been successfully interpreted.  Output the results to STDERR and store them in nav_data
-										let bytes:Vec<String> = utils::bool_slice_to_byte_vec(&subframe).iter().map(|b| format!("{:02X}", b)).collect();
-										let subframe_str = format!("{:?}", sf).blue();
-										eprintln!("    {}", subframe_str);
-										eprintln!("    Hex: {}", bytes.join(""));
-
-										nav_data.push((bytes.join(""), sf, start_idx));
-									}
-									else { 
-										eprintln!("    Invalid subframe");
-									}
-								},
-								Ok(None) => {
-									// The telemetry decoder hasn't produced a new subframe yet, but everything is still okay, so do nothing
-								},
-								Err(e) => {
-									// The telemetry decoder somehow found invalid data, so report a loss of lock and break out of this inner while loop
-									if acq_samples_so_far > acq_samples_to_try { break; }
-									eprintln!("{}", format!("  Loss of lock due to {:?}, {} of {}", e, acq_samples_so_far, acq_samples_to_try).red());
-									break;
-								}
-							}
-						}
-						tracking::TrackingResult::NotReady => {
-							// We don't have a new bit available, but we also haven't lost the lock, so do nothing
+					match chn.apply(sample) {
+						channel::ChannelResult::Ok(hex, sf, start_idx) => {
+							let subframe_str = format!("{:?}", sf).blue();
+							eprintln!("    {}", subframe_str);
+							nav_data.push((hex, sf, start_idx))
 						},
-						tracking::TrackingResult::Err(e) => {
+						channel::ChannelResult::NotReady => {},
+						channel::ChannelResult::Err(e) => {
 							// The tracking block reported a loss of lock
 							eprintln!("{}", format!("  Loss of lock due to {:?}, {} of {}", e, acq_samples_so_far, acq_samples_to_try).red());
 							break;
@@ -127,7 +97,7 @@ fn main() {
 
 				// Store the results of this acquisition if subframes were found
 				if nav_data.len() > 0 {
-					let this_result = Result{ prn, acq_doppler_hz: r.doppler_hz, acq_test_statistic: r.test_statistic, final_doppler_hz: trk.carrier_freq_hz(), nav_data };
+					let this_result = Result{ prn, acq_doppler_hz: r.doppler_hz, acq_test_statistic: r.test_statistic, final_doppler_hz: chn.carrier_freq_hz(), nav_data };
 					all_results.push(this_result);
 				}
 			}

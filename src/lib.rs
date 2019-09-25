@@ -72,7 +72,7 @@ pub mod utils {
 
 }
 
-#[derive(Debug, Hash, PartialEq, Eq, Clone)]
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum DigSigProcErr {
     NoSourceData,
     LossOfLock,

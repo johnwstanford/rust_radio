@@ -9,6 +9,8 @@ pub mod telemetry_decode;
 
 pub mod constants;
 
+pub mod channel;
+
 pub mod gps {
 
 	pub mod l1_ca_signal {

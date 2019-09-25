@@ -94,13 +94,13 @@ impl Acquisition {
 
 }
 
-pub fn make_acquisition(symbol:&Vec<i8>, fs:f64, doppler_step:usize, doppler_max:i16, test_statistic_threshold:f64) -> Acquisition {
+pub fn make_acquisition(symbol:Vec<i8>, fs:f64, doppler_step:usize, doppler_max:i16, test_statistic_threshold:f64) -> Acquisition {
 
 	let len_fft:usize = symbol.len();
 	let doppler_freqs:Vec<i16> = (-doppler_max..doppler_max).step_by(doppler_step as usize).collect();
 
 	// Forward FFT
-	let mut local_code_time_domain: Vec<Complex<f64>> = symbol.into_iter().map(|b| Complex{ re: *b as f64, im: 0.0 }).collect();
+	let mut local_code_time_domain: Vec<Complex<f64>> = symbol.into_iter().map(|b| Complex{ re: b as f64, im: 0.0 }).collect();
 	let mut fft_out: Vec<Complex<f64>> = vec![Complex::zero(); len_fft];
 	let mut planner = FFTplanner::new(false);
 	let fft = planner.plan_fft(len_fft);

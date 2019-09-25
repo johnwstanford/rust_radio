@@ -61,7 +61,7 @@ fn main() {
 		eprintln!("  PRN {}: Searching...", prn);
 		let mut signal = io::file_source_i16_complex(&fname);
 		let symbol:Vec<i8> = l1_ca_signal::prn_int_sampled(prn, fs);
-		let mut acq = acquisition::make_acquisition(&symbol, fs, 50, 10000, 0.008);
+		let mut acq = acquisition::make_acquisition(symbol, fs, 50, 10000, 0.008);
 		let mut acq_samples_so_far:usize = 1;
 
 		while let Some((x, _)) = signal.next() {
@@ -85,9 +85,9 @@ fn main() {
 					// While we have samples available in the signal
 
 					match trk.apply(sample) {
-						Ok(Some((bit, bit_idx))) => {
+						tracking::TrackingResult::Ok{bit, bit_idx} => {
 							// While the tracker still has a lock and keeps producing prompt values, pass them into the telemetry decoder and match on the result
-							match tlm.apply((bit.re > 0.0, bit_idx)) {
+							match tlm.apply((bit, bit_idx)) {
 								Ok(Some((subframe, start_idx))) => {
 									// The telemetry decoder successfully decoded a subframe, but we just have a sequence of bits right now.  We need to interpret them.
 									if let Ok(sf) = gps::l1_ca_subframe::decode(subframe, start_idx) {
@@ -114,10 +114,10 @@ fn main() {
 								}
 							}
 						}
-						Ok(None) => {
+						tracking::TrackingResult::NotReady => {
 							// We don't have a new bit available, but we also haven't lost the lock, so do nothing
 						},
-						Err(e) => {
+						tracking::TrackingResult::Err(e) => {
 							// The tracking block reported a loss of lock
 							eprintln!("{}", format!("  Loss of lock due to {:?}, {} of {}", e, acq_samples_so_far, acq_samples_to_try).red());
 							break;
@@ -125,9 +125,11 @@ fn main() {
 					}
 				}
 
-				// Store the results of this acquisition.  At a minimum, we have the acquisition itself to report.  We may or may not also have subframes.
-				let this_result = Result{ prn, acq_doppler_hz: r.doppler_hz, acq_test_statistic: r.test_statistic, final_doppler_hz: trk.carrier_freq_hz(), nav_data };
-				all_results.push(this_result);
+				// Store the results of this acquisition if subframes were found
+				if nav_data.len() > 0 {
+					let this_result = Result{ prn, acq_doppler_hz: r.doppler_hz, acq_test_statistic: r.test_statistic, final_doppler_hz: trk.carrier_freq_hz(), nav_data };
+					all_results.push(this_result);
+				}
 			}
 
 			if acq_samples_so_far > acq_samples_to_try { 

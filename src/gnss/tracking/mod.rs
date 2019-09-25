@@ -39,6 +39,13 @@ enum TrackingState {
 	Tracking,
 }
 
+#[derive(Debug)]
+pub enum TrackingResult {
+	NotReady,
+	Ok{ bit:bool, bit_idx:usize },
+	Err(DigSigProcErr),
+}
+
 impl Tracking {
 
 	fn cn0_and_tracking_lock_status(&self) -> bool {
@@ -100,11 +107,8 @@ impl Tracking {
 	}
 
 	// Public interface
-	/// Takes a sample in the form of a tuple of the complex sample itself and the sample number.  Returns a Result.
-	/// If the Result is Err, then lock has been lost.  If the Result is Ok, then we are still tracking the signal and
-	/// the Ok will contain an Option.  If the Option is None, then the next prompt value is not ready yet.  If it's
-	/// Some, it'll contain a tuple with the next prompt value and the sample index where this symbol starts.
-	pub fn apply(&mut self, sample:Sample) -> Result<Option<(Complex<f64>, usize)>, DigSigProcErr> {
+	/// Takes a sample in the form of a tuple of the complex sample itself and the sample number.  Returns a TrackingResult.
+	pub fn apply(&mut self, sample:Sample) -> TrackingResult {
 		// Start by adding the new sample to the sample buffer
 		self.sample_buffer.push(sample);
 
@@ -137,7 +141,7 @@ impl Tracking {
 				if self.cn0_and_tracking_lock_status() { 
 					self.state = TrackingState::WaitingForFirstTransition;
 				}
-				Ok(None)
+				TrackingResult::NotReady
 			},
 			TrackingState::WaitingForFirstTransition => {
 				let (found_transition, back_pos) = match (self.prompt_buffer.front(), self.prompt_buffer.back()) {
@@ -156,7 +160,7 @@ impl Tracking {
 					}
 				} 
 
-				Ok(None)
+				TrackingResult::NotReady
 			},
 			TrackingState::Tracking => {
 				if self.prompt_buffer.len() > 20 { 
@@ -168,14 +172,12 @@ impl Tracking {
 					else if self.lock_fail_count > 0 { self.lock_fail_count -= 1; }
 
 					if self.lock_fail_count > self.lock_fail_limit { 
-						Err(DigSigProcErr::LossOfLock) 
+						TrackingResult::Err(DigSigProcErr::LossOfLock) 
 					} else {
-						let this_bit:Complex<f64> = prompts_this_bit.into_iter().fold(Complex{ re:0.0, im:0.0 }, |a,b| a+b); 
-						Ok(Some((this_bit, first_idx))) 
+						let this_bit:Complex<f64> = prompts_this_bit.into_iter().fold(Complex{ re:0.0, im:0.0 }, |a,b| a+b);
+						TrackingResult::Ok{ bit:(this_bit.re > 0.0), bit_idx: first_idx} 
 					}
-				} else {
-					Ok(None)
-				}
+				} else { TrackingResult::NotReady }
 
 			}
 		}

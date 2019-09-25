@@ -88,17 +88,16 @@ fn main() {
 						channel::ChannelResult::Err(e) => {
 							// The tracking block reported a loss of lock
 							eprintln!("{}", format!("  Loss of lock due to {:?}, {} of {}", e, acq_samples_so_far, acq_samples_to_try).red());
-
-							// Store the results of this acquisition if subframes were found
-							if nav_data_buffer.len() > 0 {
-								let nav_data = nav_data_buffer.drain(..).collect();
-								let this_result = Result{ prn, acq_doppler_hz: r.doppler_hz, acq_test_statistic: r.test_statistic, final_doppler_hz: chn.carrier_freq_hz(), nav_data };
-								all_results.push(this_result);
-							}
-
 							break;
 						}
 					}
+				}
+
+				// Store the results of this acquisition if subframes were found
+				if nav_data_buffer.len() > 0 {
+					let nav_data = nav_data_buffer.drain(..).collect();
+					let this_result = Result{ prn, acq_doppler_hz: r.doppler_hz, acq_test_statistic: r.test_statistic, final_doppler_hz: chn.carrier_freq_hz(), nav_data };
+					all_results.push(this_result);
 				}
 
 			}

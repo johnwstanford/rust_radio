@@ -23,7 +23,7 @@ pub enum ChannelState {
 #[derive(Debug)]
 pub enum ChannelResult {
 	NotReady(&'static str),
-	Acquisition{ doppler_hz:i16, test_stat:f64, code_phase:usize },
+	Acquisition{ doppler_hz:i16, test_stat:f64 },
 	Ok(String, l1_ca_subframe::Subframe, usize),
 	Err(DigSigProcErr),
 }
@@ -53,7 +53,8 @@ impl Channel {
 	pub fn apply(&mut self, s:Sample) -> ChannelResult { match self.state {
 		ChannelState::Acquisition => {
 			if let Some(r) = self.acq.apply(s.0) {
-				ChannelResult::Acquisition{ doppler_hz: r.doppler_hz, test_stat: r.test_statistic, code_phase: r.code_phase }
+				self.initialize(r.doppler_hz as f64, r.code_phase);
+				ChannelResult::Acquisition{ doppler_hz: r.doppler_hz, test_stat: r.test_statistic }
 			}
 			else { ChannelResult::NotReady("Waiting on acquisition") }
 		},
@@ -90,11 +91,8 @@ impl Channel {
 
 }
 
-pub fn new_default_channel(prn:usize, fs:f64, acq_freq:f64, code_phase:usize) -> Channel {
-	let state = match code_phase {
-		0 => ChannelState::Tracking,
-		n => ChannelState::PullIn(n),
-	};
+pub fn new_default_channel(prn:usize, fs:f64, acq_freq:f64) -> Channel {
+	let state = ChannelState::Acquisition;
 	let symbol:Vec<i8> = l1_ca_signal::prn_int_sampled(prn, fs);
 	let acq = acquisition::make_acquisition(symbol, fs, 50, 10000, 0.008);
 	let trk = tracking::new_default_tracker(prn, acq_freq, fs, DEFAULT_PLL_BW_HZ, DEFAULT_DLL_BW_HZ);

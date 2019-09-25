@@ -13,8 +13,6 @@ use rust_radio::gnss::channel;
 use rust_radio::gnss::telemetry_decode::gps;
 use serde::{Serialize, Deserialize};
 
-const DEFAULT_ACQ_SAMPLES_TO_TRY:usize = 200_000;
-
 #[derive(Serialize, Deserialize, Debug)]
 struct Result {
 	prn:usize,
@@ -47,10 +45,6 @@ fn main() {
 
 	let fname:&str = matches.value_of("filename").unwrap();
 	let fs = matches.value_of("sample_rate_sps").unwrap().parse().unwrap();
-	let acq_samples_to_try:usize = match matches.value_of("acq_samples_to_try") {
-		Some(n) => n.parse().unwrap(),
-		None => DEFAULT_ACQ_SAMPLES_TO_TRY,
-	};
 
 	eprintln!("Decoding {} at {} [samples/sec]", &fname, &fs);
 	let mut all_results:Vec<Result> = vec![];
@@ -58,28 +52,24 @@ fn main() {
 	for prn in 1..=32 {
 		eprintln!("  PRN {}: Searching...", prn);
 		let mut signal = io::file_source_i16_complex(&fname);
-		let mut chn = channel::new_default_channel(prn, fs, 0.0, 0);
+		let mut chn = channel::new_default_channel(prn, fs, 0.0);
 		let mut nav_data_buffer:Vec<(String, gps::l1_ca_subframe::Subframe, usize)> = vec![];
-		let mut acq_samples_so_far:usize = 1;
 
 		while let Some(s) = signal.next() {
-			acq_samples_so_far += 1;
 
-			chn.state = channel::ChannelState::Acquisition;
 			match chn.apply(s) {
-				channel::ChannelResult::Acquisition{ doppler_hz, test_stat, code_phase } => {
+				channel::ChannelResult::Acquisition{ doppler_hz, test_stat } => {
 					// We've acquired a satellite and we'll stay in this block until we run out of data or loose the lock
 					eprintln!("{}", format!("  PRN {}: Acquired at {} [Hz] doppler, {} test statistic, attempting to track", prn, doppler_hz, test_stat).green());
 
 					// Create a new channel to track the signal and decode the subframes
-					chn.initialize(doppler_hz as f64, code_phase);
 					nav_data_buffer.clear();
 
 					while let Some(sample) = signal.next() {
 						// While we have samples available in the signal
 
 						match chn.apply(sample) {
-							channel::ChannelResult::Acquisition{doppler_hz:_, test_stat:_, code_phase:_} => panic!("Shouldn't be in Acquisition here"),
+							channel::ChannelResult::Acquisition{doppler_hz:_, test_stat:_ } => panic!("Shouldn't be in Acquisition here"),
 							channel::ChannelResult::Ok(hex, sf, start_idx) => {
 								let subframe_str = format!("{:?}", sf).blue();
 								eprintln!("    {}", subframe_str);
@@ -90,7 +80,8 @@ fn main() {
 							},
 							channel::ChannelResult::Err(e) => {
 								// The tracking block reported a loss of lock
-								eprintln!("{}", format!("  Loss of lock due to {:?}, {} of {}", e, acq_samples_so_far, acq_samples_to_try).red());
+								eprintln!("{}", format!("  Loss of lock due to {:?}", e).red());
+								chn.state = channel::ChannelState::Acquisition;
 								break;
 							}
 						}
@@ -106,7 +97,6 @@ fn main() {
 				_ => {}
 			}
 
-			if acq_samples_so_far > acq_samples_to_try { break; }
 		}
 
 	}

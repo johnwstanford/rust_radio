@@ -43,44 +43,53 @@ fn main() {
 	let fs = matches.value_of("sample_rate_sps").unwrap().parse().unwrap();
 
 	eprintln!("Decoding {} at {} [samples/sec]", &fname, &fs);
-	let mut all_results:Vec<Result> = vec![];
 
-	for prn in 1..=32 {
-		eprintln!("  PRN {}: Searching...", prn);
-		let mut signal = io::file_source_i16_complex(&fname);
-		let mut chn = channel::new_default_channel(prn, fs, 0.0);
-		let mut nav_data_buffer:Vec<(String, gps::l1_ca_subframe::Subframe, usize)> = vec![];
-		let mut last_acq_doppler_hz:i16 = 0;
-		let mut last_acq_test_stat:f64 = 0.0;
+	let mut channels:Vec<(channel::Channel, Result, Vec<Result>)> = (1..=32).map(|prn| {
+		let channel = channel::new_default_channel(prn, fs, 0.0);
+		let result = Result{ prn, acq_doppler_hz:0, acq_test_statistic:0.0, final_doppler_hz:0.0, nav_data:Vec::new() };
+		(channel, result, Vec::new())
+	}).collect();
 
-		while let Some(s) = signal.next() {
-
+	for s in io::file_source_i16_complex(&fname) {
+		for (chn, current_result, result_buffer) in &mut channels {
 			match chn.apply(s) {
 				channel::ChannelResult::Acquisition{ doppler_hz, test_stat } => {
-					// We've acquired a satellite and we'll stay in this block until we run out of data or loose the lock
-					eprintln!("{}", format!("  PRN {}: Acquired at {} [Hz] doppler, {} test statistic, attempting to track", prn, doppler_hz, test_stat).green());
-					last_acq_doppler_hz = doppler_hz;
-					last_acq_test_stat = test_stat;
+					// If we have subframes from the previous acquisition, commit them to the buffer
+					if current_result.nav_data.len() > 0 {
+						let result_copy = Result{ prn: current_result.prn, 
+							acq_doppler_hz: current_result.acq_doppler_hz, 
+							acq_test_statistic: current_result.acq_test_statistic, 
+							final_doppler_hz: current_result.final_doppler_hz, 
+							nav_data: current_result.nav_data.drain(..).collect() };
+						result_buffer.push(result_copy);
+					}
 
-					// Create a new channel to track the signal and decode the subframes
-					nav_data_buffer.clear();
+					current_result.acq_doppler_hz = doppler_hz;
+					current_result.acq_test_statistic = test_stat;
+					current_result.final_doppler_hz = doppler_hz as f64;
+
+					eprintln!("{}", format!("  PRN {}: Acquired at {} [Hz] doppler, {} test statistic, attempting to track", chn.prn, doppler_hz, test_stat).green());
 				},
 				channel::ChannelResult::Ok(hex, sf, start_idx) => {
 					let subframe_str = format!("{:?}", sf).blue();
 					eprintln!("    {}", subframe_str);
-					nav_data_buffer.push((hex, sf, start_idx))
+					current_result.nav_data.push((hex, sf, start_idx));
+					current_result.final_doppler_hz = chn.carrier_freq_hz();
 				},
 				channel::ChannelResult::Err(e) => eprintln!("{}", format!("  Error due to {:?}", e).red()),
 				_ => {}
 			}
-
 		}
 
-		// Store the results if subframes were found
-		if nav_data_buffer.len() > 0 {
-			let nav_data = nav_data_buffer.drain(..).collect();
-			let this_result = Result{ prn, acq_doppler_hz: last_acq_doppler_hz, acq_test_statistic: last_acq_test_stat, final_doppler_hz: chn.carrier_freq_hz(), nav_data };
-			all_results.push(this_result);
+	}
+
+	let mut all_results:Vec<Result> = Vec::new();
+	for (_, current_result, result_buffer) in channels {
+		for result in result_buffer {
+			all_results.push(result);
+		}
+		if current_result.nav_data.len() > 0 {
+			all_results.push(current_result);
 		}
 	}
 

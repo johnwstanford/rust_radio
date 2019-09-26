@@ -6,14 +6,14 @@ use self::serde::{Serialize, Deserialize};
 use ::DigSigProcErr;
 use ::utils;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Copy, Clone)]
 pub struct CommonFields {
-	time_of_week_truncated:u32,
-	subframe_id:u8,
-	start_sample_idx:usize,
+	pub time_of_week_truncated:u32,
+	pub subframe_id:u8,
+	pub start_sample_idx:usize,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Copy, Clone)]
 pub enum Subframe {
 	Subframe1{common:CommonFields, week_number:u16, code_on_l2:CodeOnL2, ura_index:u8, sv_health:u8, iodc:u16, t_gd:f64, t_oc:u32, a_f2:f64, a_f1:f64, a_f0:f64},
 	Subframe2{common:CommonFields, iode:u8, crs:f64, dn:f64, m0:f64, cuc:f64, e:f64, cus:f64, sqrt_a:f64, t_oe:f64, fit_interval:bool, aodo:u8 },
@@ -22,7 +22,7 @@ pub enum Subframe {
 	Subframe5{common:CommonFields, data_id:u8, sv_id:u8, page:Subframe5},
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Copy, Clone)]
 pub enum Subframe4 {
 	AlmanacData{e:f64, t_oa:u32, delta_i:f64, omega_dot:f64, sv_health:u8, sqrt_a:f64, omega0:f64, omega:f64, m0:f64, af0:f64, af1:f64},
 	NavigationMessageCorrectionTable{availability:u8, erd:[u8; 30]},
@@ -32,13 +32,13 @@ pub enum Subframe4 {
 	Reserved,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Copy, Clone)]
 pub enum Subframe5 {
 	AlmanacData{e:f64, t_oa:u32, delta_i:f64, omega_dot:f64, sv_health:u8, sqrt_a:f64, omega0:f64, omega:f64, m0:f64, af0:f64, af1:f64},
 	Page25{t_oa:u32, WN_a:u8, sv_health:[u8; 24]},
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Copy, Clone)]
 #[allow(non_camel_case_types)]
 pub enum CodeOnL2 {
 	Reserved,

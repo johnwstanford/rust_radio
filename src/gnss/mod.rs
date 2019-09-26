@@ -11,6 +11,8 @@ pub mod constants;
 
 pub mod channel;
 
+pub mod pvt;
+
 pub mod gps {
 
 	pub mod l1_ca_signal {

@@ -10,7 +10,7 @@ colored = "1.8.0"
 dirs = "2.0.1"
 num-complex = "0.2.3"
 rustfft = "3.0.0"
-rayon = "1.0.3"
+nalgebra = "0.18.0"
 
 serde = { version = "1.0.60", features = ["derive"] }
 serde_derive = "1.0"

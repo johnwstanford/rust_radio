@@ -4,6 +4,7 @@ extern crate colored;
 extern crate rust_radio;
 extern crate dirs;
 extern crate serde;
+extern crate nalgebra as na;
 
 use std::collections::VecDeque;
 
@@ -15,16 +16,20 @@ use rust_radio::gnss::pvt;
 use rust_radio::gnss::telemetry_decode::gps;
 use serde::{Serialize, Deserialize};
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+const NUM_ITERATIONS:usize = 50;
+const C:f64 = 2.99792458e8;					 // [m/s] speed of light
+
+use na::base::DMatrix;
+
+#[derive(Debug, Serialize, Deserialize)]
 struct Result {
-	prn:usize,
-	acq_doppler_hz:i16,
-	acq_test_statistic:f64,
-	final_doppler_hz:f64,
-	subframes:Vec<gps::l1_ca_subframe::Subframe>,
-	ecef_positions:Vec<pvt::SatellitePosition>,
+	all_sv_positions: Vec<pvt::SatellitePosition>,
+	obs_ecef:(f64, f64, f64),
+	obs_time_at_zero_code_phase:f64,
 }
+
 fn main() {
+
 	let matches = App::new("GPS L1 C/A Subframe Decode")
 		.version("0.1.0")
 		.author("John Stanford (johnwstanford@gmail.com)")
@@ -47,27 +52,16 @@ fn main() {
 
 	eprintln!("Decoding {} at {} [samples/sec]", &fname, &fs);
 
-	let mut channels:Vec<(channel::Channel, VecDeque<gps::l1_ca_subframe::Subframe>, Result)> = (1..=32).map(|prn| {
-		let channel = channel::new_default_channel(prn, fs, 0.0);
-		let result = Result{ prn, acq_doppler_hz: 0, acq_test_statistic: 0.0, final_doppler_hz: 0.0, subframes:Vec::new(), ecef_positions:Vec::new() };
-		(channel, VecDeque::new(), result)
+	let mut channels:Vec<(channel::Channel, VecDeque<gps::l1_ca_subframe::Subframe>)> = (1..=32).map(|prn| {
+		(channel::new_channel(prn, fs, 0.0, 0.012), VecDeque::new())
 	}).collect();
 
-	let mut all_results:Vec<Result> = Vec::new();
+	let mut all_results:Vec<pvt::SatellitePosition> = Vec::new();
 
 	for s in io::file_source_i16_complex(&fname) {
-		for (chn, sf_buffer, current_result) in &mut channels {
+		for (chn, sf_buffer) in &mut channels {
 			match chn.apply(s) {
 				channel::ChannelResult::Acquisition{ doppler_hz, test_stat } => {
-					if current_result.subframes.len() > 0 {
-						all_results.push(current_result.clone());
-					}
-					current_result.acq_doppler_hz = doppler_hz;
-					current_result.acq_test_statistic = test_stat;
-					current_result.final_doppler_hz = doppler_hz as f64;
-					current_result.subframes.clear();
-					current_result.ecef_positions.clear();
-
 					eprintln!("{}", format!("  PRN {}: Acquired at {} [Hz] doppler, {} test statistic, attempting to track", chn.prn, doppler_hz, test_stat).green());
 				},
 				channel::ChannelResult::Ok(_, sf, _) => {
@@ -76,13 +70,12 @@ fn main() {
 					eprintln!("    {}", subframe_str);
 
 					sf_buffer.push_back(sf);
-					current_result.subframes.push(sf);
 					
 					// Limit subframe buffer size to 3
 					while sf_buffer.len() > 3 { sf_buffer.pop_front(); }
 					if sf_buffer.len() == 3 {
 						if let Some(ecef) = pvt::get_ecef(sf_buffer[0], sf_buffer[1], sf_buffer[2]) {
-							current_result.ecef_positions.push(ecef)
+							all_results.push(ecef);
 						}
 					}
 
@@ -94,13 +87,52 @@ fn main() {
 
 	}
 
-	for (_, _, result) in channels {
-		if result.subframes.len() > 0 {
-			all_results.push(result);
+	// Position fix
+	let mut x_hat = DMatrix::from_element(4, 1, 0.0);
+	x_hat[(0,0)] = 6.371e6;
+	x_hat[(3,0)] = all_results[0].gps_system_time;
+	let dt_s:f64 = 1.0 / fs;
+
+	let mut jacobian = DMatrix::from_element(all_results.len(), 4, 0.0);
+
+	for _ in 0..NUM_ITERATIONS {
+		let mut f_vec    = DMatrix::from_element(all_results.len(), 1, 0.0);
+		for i in 0..all_results.len() {
+			// Calculate the Jacobian matrix
+			let (x,y,z) = all_results[i].sv_ecef_position;
+			let t:f64 = all_results[i].gps_system_time;
+			let phi_c:f64 = all_results[i].receiver_code_phase as f64;
+			jacobian[(i, 0)] = -2.0 * (x_hat[(0,0)] - x);
+			jacobian[(i, 1)] = -2.0 * (x_hat[(1,0)] - y);
+			jacobian[(i, 2)] = -2.0 * (x_hat[(2,0)] - z);
+			jacobian[(i, 3)] =  2.0 * (x_hat[(3,0)] + dt_s*phi_c - t) * C.powi(2);
+
+			// Calculate f vector, representing the error for each rows
+			f_vec[(i, 0)] = (x_hat[(3,0)] + dt_s*phi_c - t).powi(2) * C.powi(2) -
+				(x_hat[(0,0)] - x).powi(2) -
+				(x_hat[(1,0)] - y).powi(2) -
+				(x_hat[(2,0)] - z).powi(2);
 		}
+
+		// Calculate the pseudoinverse of the Jacobian
+		let mut jacobian_cpy1 = DMatrix::from_element(all_results.len(), 4, 0.0);
+		let mut jacobian_cpy2 = DMatrix::from_element(all_results.len(), 4, 0.0);
+		jacobian_cpy1.copy_from(&jacobian);
+		jacobian_cpy2.copy_from(&jacobian);
+
+		let pseudoinverse = (jacobian.transpose() * jacobian_cpy1).try_inverse().unwrap();
+
+		let mut x_hat1 = DMatrix::from_element(4, 1, 0.0);
+		let mut x_hat2 = DMatrix::from_element(4, 1, 0.0);
+		x_hat1.copy_from(&x_hat);
+		x_hat2.copy_from(&x_hat);
+
+		x_hat = x_hat1 - (pseudoinverse * jacobian.transpose() * f_vec);
+		eprintln!("x={:1.3e} y={:1.3e} z={:1.3e} t={:1.3e}", x_hat[(0,0)], x_hat[(1,0)], x_hat[(2,0)], x_hat[(3,0)]);
 	}
 
 	// This is the only output to STDOUT.  This allows you to pipe the results to a JSON file, but still see the status updates through STDERR as the code runs.
-	println!("{}", serde_json::to_string(&all_results).unwrap());
+	let result = Result{ all_sv_positions: all_results, obs_ecef:(x_hat[(0,0)], x_hat[(1,0)], x_hat[(2,0)]), obs_time_at_zero_code_phase:x_hat[(3,0)] };
+	println!("{}", serde_json::to_string(&result).unwrap());
 
 }

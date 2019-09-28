@@ -17,6 +17,7 @@ pub const DEFAULT_TEST_STAT_THRESHOLD:f64 = 0.008;
 
 type Sample = (Complex<f64>, usize);
 
+#[derive(Clone, Copy, PartialEq)]
 pub enum ChannelState {
 	Acquisition,
 	PullIn(usize),
@@ -40,6 +41,7 @@ pub struct Channel {
 	tlm: telemetry_decode::gps::TelemetryDecoder,
 	last_acq_doppler:i16,
 	last_acq_test_stat:f64,
+	last_sample_idx:usize,
 }
 
 impl Channel {
@@ -47,6 +49,7 @@ impl Channel {
 	pub fn carrier_freq_hz(&self) -> f64 { self.trk.carrier_freq_hz() }
 	pub fn last_acq_doppler(&self) -> i16 { self.last_acq_doppler }
 	pub fn last_acq_test_stat(&self) -> f64 { self.last_acq_test_stat }
+	pub fn state(&self) -> ChannelState { self.state }
 
 	pub fn initialize(&mut self, acq_freq:f64, code_phase:usize) {
 		self.state = match code_phase {
@@ -57,47 +60,52 @@ impl Channel {
 		self.tlm.initialize();
 	}
 
-	pub fn apply(&mut self, s:Sample) -> ChannelResult { match self.state {
-		ChannelState::Acquisition => {
-			if let Some(r) = self.acq.apply(s.0) {
-				self.initialize(r.doppler_hz as f64, r.code_phase);
-				self.last_acq_doppler = r.doppler_hz;
-				self.last_acq_test_stat = r.test_statistic;
-				ChannelResult::Acquisition{ doppler_hz: r.doppler_hz, test_stat: r.test_statistic }
-			}
-			else { ChannelResult::NotReady("Waiting on acquisition") }
-		},
-		ChannelState::PullIn(n) => {
-			self.state = match n {
-				1 => ChannelState::Tracking,
-				_ => ChannelState::PullIn(n-1),
-			};
-			ChannelResult::NotReady("Pulling in signal")
-		},
-		ChannelState::Tracking => { 
-			match self.trk.apply(s) {
-				tracking::TrackingResult::Ok{bit, bit_idx} => {
-					// The tracker has a lock and produced a bit, so pass it into the telemetry decoder and match on the result
-					match self.tlm.apply((bit, bit_idx)) {
-						telemetry_decode::gps::TelemetryDecoderResult::Ok(sf, bits, start_idx) => {
-							let bytes:Vec<String> = utils::bool_slice_to_byte_vec(&bits).iter().map(|b| format!("{:02X}", b)).collect();
-							ChannelResult::Ok(bytes.join(""), sf, start_idx)							
-						},
-						telemetry_decode::gps::TelemetryDecoderResult::NotReady => ChannelResult::NotReady("Have a new bit, but new subframe not yet ready"),
-						telemetry_decode::gps::TelemetryDecoderResult::Err(e) => {
-							self.state = ChannelState::Acquisition;
-							ChannelResult::Err(e)
-						}
-					}					
-				},
-				tracking::TrackingResult::NotReady => ChannelResult::NotReady("Waiting on next bit from tracker"),
-				tracking::TrackingResult::Err(e) => {
-					self.state = ChannelState::Acquisition;
-					ChannelResult::Err(e)
-				},
+	pub fn apply(&mut self, s:Sample) -> ChannelResult { 
+		if s.1 <= self.last_sample_idx && s.1 > 0 { panic!("Somehow got the same sample twice or went backwards"); }
+		self.last_sample_idx = s.1;
+
+		match self.state {
+			ChannelState::Acquisition => {
+				if let Some(r) = self.acq.apply(s.0) {
+					self.initialize(r.doppler_hz as f64, r.code_phase);
+					self.last_acq_doppler = r.doppler_hz;
+					self.last_acq_test_stat = r.test_statistic;
+					ChannelResult::Acquisition{ doppler_hz: r.doppler_hz, test_stat: r.test_statistic }
+				}
+				else { ChannelResult::NotReady("Waiting on acquisition") }
+			},
+			ChannelState::PullIn(n) => {
+				self.state = match n {
+					1 => ChannelState::Tracking,
+					_ => ChannelState::PullIn(n-1),
+				};
+				ChannelResult::NotReady("Pulling in signal")
+			},
+			ChannelState::Tracking => { 
+				match self.trk.apply(s) {
+					tracking::TrackingResult::Ok{bit, bit_idx} => {
+						// The tracker has a lock and produced a bit, so pass it into the telemetry decoder and match on the result
+						match self.tlm.apply((bit, bit_idx)) {
+							telemetry_decode::gps::TelemetryDecoderResult::Ok(sf, bits, start_idx) => {
+								let bytes:Vec<String> = utils::bool_slice_to_byte_vec(&bits).iter().map(|b| format!("{:02X}", b)).collect();
+								ChannelResult::Ok(bytes.join(""), sf, start_idx)							
+							},
+							telemetry_decode::gps::TelemetryDecoderResult::NotReady => ChannelResult::NotReady("Have a new bit, but new subframe not yet ready"),
+							telemetry_decode::gps::TelemetryDecoderResult::Err(e) => {
+								self.state = ChannelState::Acquisition;
+								ChannelResult::Err(e)
+							}
+						}					
+					},
+					tracking::TrackingResult::NotReady => ChannelResult::NotReady("Waiting on next bit from tracker"),
+					tracking::TrackingResult::Err(e) => {
+						self.state = ChannelState::Acquisition;
+						ChannelResult::Err(e)
+					},
+				}
 			}
 		}
-	}}
+	}
 
 }
 
@@ -110,5 +118,5 @@ pub fn new_channel(prn:usize, fs:f64, acq_freq:f64, test_stat:f64) -> Channel {
 	let trk = tracking::new_default_tracker(prn, acq_freq, fs, DEFAULT_PLL_BW_HZ, DEFAULT_DLL_BW_HZ);
 	let tlm = telemetry_decode::gps::TelemetryDecoder::new();
 
-	Channel{ prn, fs, state, acq, trk, tlm, last_acq_doppler:0, last_acq_test_stat: 0.0 }
+	Channel{ prn, fs, state, acq, trk, tlm, last_acq_doppler:0, last_acq_test_stat: 0.0, last_sample_idx: 0 }
 }

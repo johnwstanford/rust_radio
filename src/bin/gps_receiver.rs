@@ -16,10 +16,13 @@ use rust_radio::gnss::pvt;
 use rust_radio::gnss::telemetry_decode::gps;
 use serde::{Serialize, Deserialize};
 
-const NUM_ITERATIONS:usize = 50;
+use na::base::DMatrix;
+
 const C:f64 = 2.99792458e8;					 // [m/s] speed of light
 
-use na::base::DMatrix;
+// TODO: make these configurable
+const NUM_ITERATIONS:usize = 50;
+const NUM_ACTIVE_CHANNELS:usize = 7;
 
 #[derive(Debug, Serialize, Deserialize)]
 struct Result {
@@ -52,17 +55,20 @@ fn main() {
 
 	eprintln!("Decoding {} at {} [samples/sec]", &fname, &fs);
 
-	let mut channels:Vec<(channel::Channel, VecDeque<gps::l1_ca_subframe::Subframe>)> = (1..=32).map(|prn| {
+	let mut inactive_channels:VecDeque<(channel::Channel, VecDeque<gps::l1_ca_subframe::Subframe>)> = (1..=32).map(|prn| {
 		(channel::new_channel(prn, fs, 0.0, 0.012), VecDeque::new())
 	}).collect();
+
+	let mut active_channels:VecDeque<(channel::Channel, VecDeque<gps::l1_ca_subframe::Subframe>)> = inactive_channels.drain(..NUM_ACTIVE_CHANNELS).collect();
 
 	let mut all_results:Vec<pvt::SatellitePosition> = Vec::new();
 
 	for s in io::file_source_i16_complex(&fname) {
-		for (chn, sf_buffer) in &mut channels {
+
+		for (chn, sf_buffer) in &mut active_channels {
 			match chn.apply(s) {
 				channel::ChannelResult::Acquisition{ doppler_hz, test_stat } => {
-					eprintln!("{}", format!("  PRN {}: Acquired at {} [Hz] doppler, {} test statistic, attempting to track", chn.prn, doppler_hz, test_stat).green());
+					eprintln!("{}", format!("PRN {}: Acquired at {} [Hz] doppler, {} test statistic, attempting to track", chn.prn, doppler_hz, test_stat).green());
 				},
 				channel::ChannelResult::Ok(_, sf, _) => {
 					// Print subframe to STDERR
@@ -80,9 +86,28 @@ fn main() {
 					}
 
 				},
-				channel::ChannelResult::Err(e) => eprintln!("{}", format!("  Error due to {:?}", e).red()),
+				channel::ChannelResult::Err(e) => eprintln!("{}", format!("Error due to {:?}", e).red()),
 				_ => {}
 			}
+		}
+
+		// Once per second, move channels without a signal lock to the inactive buffer and replace them with new ones
+		if (s.1 % (fs as usize) == 0) && (s.1 > 0) {
+			for _ in 0..NUM_ACTIVE_CHANNELS {
+				let this_channel = active_channels.pop_front().unwrap();
+				if this_channel.0.state() == channel::ChannelState::Acquisition {
+					// Move this channel to inactive and replace it
+					let replacement_channel = inactive_channels.pop_front().unwrap();
+					eprintln!("{:.1} [sec]: Putting PRN {} in the inactive buffer, replacing with PRN {}", (s.1 as f64)/fs, this_channel.0.prn, replacement_channel.0.prn);
+					inactive_channels.push_back(this_channel);
+					active_channels.push_back(replacement_channel);
+				} else {
+					// Keep this channel in the active buffer
+					active_channels.push_back(this_channel);
+				}
+			}
+			assert!(active_channels.len() == NUM_ACTIVE_CHANNELS);
+			assert!(inactive_channels.len() == (32 - NUM_ACTIVE_CHANNELS));
 		}
 
 	}

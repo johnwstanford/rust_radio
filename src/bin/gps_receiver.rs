@@ -16,7 +16,7 @@ use rust_radio::gnss::pvt;
 use rust_radio::gnss::telemetry_decode::gps;
 use serde::{Serialize, Deserialize};
 
-use na::base::DMatrix;
+use na::base::{DMatrix, Matrix4x1, U4, U1};
 
 const C:f64 = 2.99792458e8;					 // [m/s] speed of light
 
@@ -73,7 +73,7 @@ fn main() {
 				channel::ChannelResult::Ok(_, sf, _) => {
 					// Print subframe to STDERR
 					let subframe_str = format!("{:?}", &sf).blue();
-					eprintln!("    {}", subframe_str);
+					eprintln!("{}", subframe_str);
 
 					sf_buffer.push_back(sf);
 					
@@ -91,8 +91,8 @@ fn main() {
 			}
 		}
 
-		// Once per second, move channels without a signal lock to the inactive buffer and replace them with new ones
-		if (s.1 % (fs as usize) == 0) && (s.1 > 0) {
+		// Every 0.1 sec, move channels without a signal lock to the inactive buffer and replace them with new ones
+		if (s.1 % (fs as usize / 10) == 0) && (s.1 > 0) {
 			for _ in 0..NUM_ACTIVE_CHANNELS {
 				let this_channel = active_channels.pop_front().unwrap();
 				if this_channel.0.state() == channel::ChannelState::Acquisition {
@@ -113,9 +113,7 @@ fn main() {
 	}
 
 	// Position fix
-	let mut x_hat = DMatrix::from_element(4, 1, 0.0);
-	x_hat[(0,0)] = 6.371e6;
-	x_hat[(3,0)] = all_results[0].gps_system_time;
+	let mut x_hat = Matrix4x1::from_row_slice_generic(U4, U1, &[6.371e6, 0.0, 0.0, all_results[0].gps_system_time]);
 	let dt_s:f64 = 1.0 / fs;
 
 	let mut jacobian = DMatrix::from_element(all_results.len(), 4, 0.0);
@@ -140,19 +138,9 @@ fn main() {
 		}
 
 		// Calculate the pseudoinverse of the Jacobian
-		let mut jacobian_cpy1 = DMatrix::from_element(all_results.len(), 4, 0.0);
-		let mut jacobian_cpy2 = DMatrix::from_element(all_results.len(), 4, 0.0);
-		jacobian_cpy1.copy_from(&jacobian);
-		jacobian_cpy2.copy_from(&jacobian);
+		let pseudoinverse = (jacobian.tr_mul(&jacobian)).try_inverse().unwrap();
 
-		let pseudoinverse = (jacobian.transpose() * jacobian_cpy1).try_inverse().unwrap();
-
-		let mut x_hat1 = DMatrix::from_element(4, 1, 0.0);
-		let mut x_hat2 = DMatrix::from_element(4, 1, 0.0);
-		x_hat1.copy_from(&x_hat);
-		x_hat2.copy_from(&x_hat);
-
-		x_hat = x_hat1 - (pseudoinverse * jacobian.transpose() * f_vec);
+		x_hat = x_hat.clone_owned() - (pseudoinverse * jacobian.transpose() * f_vec);
 		eprintln!("x={:1.3e} y={:1.3e} z={:1.3e} t={:1.3e}", x_hat[(0,0)], x_hat[(1,0)], x_hat[(2,0)], x_hat[(3,0)]);
 	}
 

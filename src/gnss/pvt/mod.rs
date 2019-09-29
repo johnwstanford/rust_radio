@@ -25,7 +25,8 @@ pub fn get_ecef(sf1:SF, sf2:SF, sf3:SF) -> Option<SatellitePosition> { match (sf
 	(SF::Subframe1{common:common1, week_number:_, code_on_l2:_, ura_index:_, sv_health:_, iodc:_, t_gd:_, t_oc, a_f2, a_f1, a_f0}, 
 	 SF::Subframe2{common:_, iode:_, crs, dn, m0, cuc, e, cus, sqrt_a, t_oe, fit_interval:_, aodo:_ }, 
 	 SF::Subframe3{common:_, cic, omega0, cis, i0, crc, omega, omega_dot, iode:_, idot}) => {
-		// TODO adjust SV time and check IODE/IODC
+		// TODO: make other time corrections (ionosphere, etc) 
+		// TODO: check IODE/IODC
 
 		// Find GPS system time at the time of transmission of the beginning of subframe 1
 		// Use the algorithm described in IS-GPS-200H, 20.3.3.3.3.1

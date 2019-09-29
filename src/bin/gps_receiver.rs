@@ -25,8 +25,17 @@ const NUM_ITERATIONS:usize = 50;
 const NUM_ACTIVE_CHANNELS:usize = 7;
 
 #[derive(Debug, Serialize, Deserialize)]
+struct PositionWithMetadata {
+	position: pvt::SatellitePosition,
+	prn: usize,
+	carrier_freq_hz: f64,
+	cn0_snv_db_hz: f64,
+	carrier_lock_test: f64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 struct Result {
-	all_sv_positions: Vec<pvt::SatellitePosition>,
+	all_sv_positions: Vec<PositionWithMetadata>,
 	obs_ecef:(f64, f64, f64),
 	obs_time_at_zero_code_phase:f64,
 }
@@ -56,12 +65,12 @@ fn main() {
 	eprintln!("Decoding {} at {} [samples/sec]", &fname, &fs);
 
 	let mut inactive_channels:VecDeque<(channel::Channel, VecDeque<gps::l1_ca_subframe::Subframe>)> = (1..=32).map(|prn| {
-		(channel::new_channel(prn, fs, 0.0, 0.012), VecDeque::new())
+		(channel::new_channel(prn, fs, 0.0, 0.01), VecDeque::new())
 	}).collect();
 
 	let mut active_channels:VecDeque<(channel::Channel, VecDeque<gps::l1_ca_subframe::Subframe>)> = inactive_channels.drain(..NUM_ACTIVE_CHANNELS).collect();
 
-	let mut all_results:Vec<pvt::SatellitePosition> = Vec::new();
+	let mut all_results:Vec<PositionWithMetadata> = Vec::new();
 
 	for s in io::file_source_i16_complex(&fname) {
 
@@ -81,12 +90,19 @@ fn main() {
 					while sf_buffer.len() > 3 { sf_buffer.pop_front(); }
 					if sf_buffer.len() == 3 {
 						if let Some(ecef) = pvt::get_ecef(sf_buffer[0], sf_buffer[1], sf_buffer[2]) {
-							all_results.push(ecef);
+							let pos_with_metadata = PositionWithMetadata{
+								position: ecef,
+								prn: chn.prn,
+								carrier_freq_hz: chn.carrier_freq_hz(),
+								cn0_snv_db_hz: chn.last_cn0_snv_db_hz(),
+								carrier_lock_test: chn.last_carrier_lock_test()
+							};
+							all_results.push(pos_with_metadata);
 						}
 					}
 
 				},
-				channel::ChannelResult::Err(e) => eprintln!("{}", format!("Error due to {:?}", e).red()),
+				channel::ChannelResult::Err(e) => eprintln!("{}", format!("PRN {}: Error due to {:?}", chn.prn, e).red()),
 				_ => {}
 			}
 		}
@@ -113,7 +129,7 @@ fn main() {
 	}
 
 	// Position fix
-	let mut x_hat = Matrix4x1::from_row_slice_generic(U4, U1, &[6.371e6, 0.0, 0.0, all_results[0].gps_system_time]);
+	let mut x_hat = Matrix4x1::from_row_slice_generic(U4, U1, &[6.371e6, 0.0, 0.0, all_results[0].position.gps_system_time]);
 	let dt_s:f64 = 1.0 / fs;
 
 	let mut jacobian = DMatrix::from_element(all_results.len(), 4, 0.0);
@@ -122,9 +138,9 @@ fn main() {
 		let mut f_vec    = DMatrix::from_element(all_results.len(), 1, 0.0);
 		for i in 0..all_results.len() {
 			// Calculate the Jacobian matrix
-			let (x,y,z) = all_results[i].sv_ecef_position;
-			let t:f64 = all_results[i].gps_system_time;
-			let phi_c:f64 = all_results[i].receiver_code_phase as f64;
+			let (x,y,z) = all_results[i].position.sv_ecef_position;
+			let t:f64 = all_results[i].position.gps_system_time;
+			let phi_c:f64 = all_results[i].position.receiver_code_phase as f64;
 			jacobian[(i, 0)] = -2.0 * (x_hat[(0,0)] - x);
 			jacobian[(i, 1)] = -2.0 * (x_hat[(1,0)] - y);
 			jacobian[(i, 2)] = -2.0 * (x_hat[(2,0)] - z);

@@ -31,6 +31,8 @@ pub struct Tracking {
 	pub local_code:Vec<Complex<f64>>,
 	pub threshold_carrier_lock_test:f64,
 	pub threshold_cn0_snv_db_hz:f64,
+	last_cn0_snv_db_hz:f64,
+	last_carrier_lock_test:f64,
 }
 
 enum TrackingState {
@@ -48,11 +50,14 @@ pub enum TrackingResult {
 
 impl Tracking {
 
-	fn cn0_and_tracking_lock_status(&self) -> bool {
+	pub fn last_cn0_snv_db_hz(&self) -> f64 { self.last_cn0_snv_db_hz }
+	pub fn last_carrier_lock_test(&self) -> f64 { self.last_carrier_lock_test }
+
+	fn cn0_and_tracking_lock_status(&mut self) -> bool {
 		if self.prompt_buffer.len() < 20 { true } else {
-			let cn0_snv_db_hz = lock_detectors::cn0_svn_estimator(&self.prompt_buffer, 0.001);
-			let carrier_lock_test = lock_detectors::carrier_lock_detector(&self.prompt_buffer);
-			(carrier_lock_test >= self.threshold_carrier_lock_test) && (cn0_snv_db_hz >= self.threshold_cn0_snv_db_hz)
+			self.last_cn0_snv_db_hz = lock_detectors::cn0_svn_estimator(&self.prompt_buffer, 0.001);
+			self.last_carrier_lock_test = lock_detectors::carrier_lock_detector(&self.prompt_buffer);
+			(self.last_carrier_lock_test >= self.threshold_carrier_lock_test) && (self.last_cn0_snv_db_hz >= self.threshold_cn0_snv_db_hz)
 		}
 	}
 
@@ -163,19 +168,17 @@ impl Tracking {
 				TrackingResult::NotReady
 			},
 			TrackingState::Tracking => {
-				if self.prompt_buffer.len() > 20 { 
-					// We have enough prompts to build a bit
-					let first_idx:usize = self.prompt_buffer[0].1;
-					let prompts_this_bit:VecDeque<Complex<f64>> = self.prompt_buffer.drain(..20).map(|(c, _)| c).collect(); 
-
+				if self.prompt_buffer.len() >= 20 { 
 					if !self.cn0_and_tracking_lock_status() { self.lock_fail_count += 1; }
 					else if self.lock_fail_count > 0 { self.lock_fail_count -= 1; }
 
 					if self.lock_fail_count > self.lock_fail_limit { 
 						TrackingResult::Err(DigSigProcErr::LossOfLock) 
 					} else {
-						let this_bit:Complex<f64> = prompts_this_bit.into_iter().fold(Complex{ re:0.0, im:0.0 }, |a,b| a+b);
-						TrackingResult::Ok{ bit:(this_bit.re > 0.0), bit_idx: first_idx} 
+						// We have enough prompts to build a bit
+						let first_idx:usize = self.prompt_buffer[0].1;
+						let this_bit_re:f64 = self.prompt_buffer.drain(..20).map(|(c, _)| c.re).fold(0.0, |a,b| a+b);
+						TrackingResult::Ok{ bit:(this_bit_re > 0.0), bit_idx: first_idx} 
 					}
 				} else { TrackingResult::NotReady }
 
@@ -205,6 +208,8 @@ impl Tracking {
 		self.prompt_buffer.clear();
 
 		self.state = TrackingState::WaitingForInitialLockStatus;
+		self.last_cn0_snv_db_hz = 0.0;
+		self.last_carrier_lock_test = 0.0;
 
 		// Leave lock_fail_limit, fs, local_code, threshold_carrier_lock_test, and threshold_cn0_snv_db_hz as is
 	}
@@ -242,6 +247,7 @@ pub fn new_default_tracker(prn:usize, acq_freq_hz:f64, fs:f64, bw_pll_hz:f64, bw
 		sample_buffer, 
 		prompt_buffer: VecDeque::new(), 
 		state: TrackingState::WaitingForInitialLockStatus,
-		fs, local_code, threshold_carrier_lock_test: 0.8, threshold_cn0_snv_db_hz: 30.0
+		fs, local_code, threshold_carrier_lock_test: 0.8, threshold_cn0_snv_db_hz: 30.0,
+		last_cn0_snv_db_hz: 0.0, last_carrier_lock_test: 0.0
 	}		
 }

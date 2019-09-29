@@ -6,12 +6,16 @@ extern crate rust_radio;
 extern crate dirs;
 extern crate serde;
 
+use std::collections::VecDeque;
+
 use clap::{Arg, App};
 use colored::*;
 use rust_radio::io;
 use rust_radio::gnss::channel;
 use rust_radio::gnss::telemetry_decode::gps;
 use serde::{Serialize, Deserialize};
+
+const NUM_ACTIVE_CHANNELS:usize = 7;
 
 #[derive(Serialize, Deserialize, Debug)]
 struct Result {
@@ -44,14 +48,16 @@ fn main() {
 
 	eprintln!("Decoding {} at {} [samples/sec]", &fname, &fs);
 
-	let mut channels:Vec<(channel::Channel, Result, Vec<Result>)> = (1..=32).map(|prn| {
-		let channel = channel::new_default_channel(prn, fs, 0.0);
+	let mut inactive_channels:VecDeque<(channel::Channel, Result, Vec<Result>)> = (1..=32).map(|prn| {
+		let channel = channel::new_channel(prn, fs, 0.0, 0.01);
 		let result = Result{ prn, acq_doppler_hz:0, acq_test_statistic:0.0, final_doppler_hz:0.0, nav_data:Vec::new() };
 		(channel, result, Vec::new())
 	}).collect();
 
+	let mut active_channels:VecDeque<(channel::Channel, Result, Vec<Result>)> = inactive_channels.drain(..NUM_ACTIVE_CHANNELS).collect();
+
 	for s in io::file_source_i16_complex(&fname) {
-		for (chn, current_result, result_buffer) in &mut channels {
+		for (chn, current_result, result_buffer) in &mut active_channels {
 			match chn.apply(s) {
 				channel::ChannelResult::Acquisition{ doppler_hz, test_stat } => {
 					// If we have subframes from the previous acquisition, commit them to the buffer
@@ -81,10 +87,34 @@ fn main() {
 			}
 		}
 
+		// Every 0.1 sec, move channels without a signal lock to the inactive buffer and replace them with new ones
+		if (s.1 % (fs as usize / 10) == 0) && (s.1 > 0) {
+			for _ in 0..NUM_ACTIVE_CHANNELS {
+				let this_channel = active_channels.pop_front().unwrap();
+				if this_channel.0.state() == channel::ChannelState::Acquisition {
+					// Move this channel to inactive and replace it
+					let replacement_channel = inactive_channels.pop_front().unwrap();
+					eprintln!("{:.1} [sec]: Putting PRN {} in the inactive buffer, replacing with PRN {}", (s.1 as f64)/fs, this_channel.0.prn, replacement_channel.0.prn);
+					inactive_channels.push_back(this_channel);
+					active_channels.push_back(replacement_channel);
+				} else {
+					// Keep this channel in the active buffer
+					active_channels.push_back(this_channel);
+				}
+			}
+			assert!(active_channels.len() == NUM_ACTIVE_CHANNELS);
+			assert!(inactive_channels.len() == (32 - NUM_ACTIVE_CHANNELS));
+		}
+
 	}
 
 	let mut all_results:Vec<Result> = Vec::new();
-	for (_, current_result, result_buffer) in channels {
+
+	// Move all channels to the active buffer, then collect all results from the active buffer
+	while let Some(chn_tuple) = inactive_channels.pop_front() {
+		active_channels.push_back(chn_tuple);
+	}
+	for (_, current_result, result_buffer) in active_channels {
 		for result in result_buffer {
 			all_results.push(result);
 		}

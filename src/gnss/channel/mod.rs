@@ -13,7 +13,7 @@ pub const DEFAULT_PLL_BW_HZ:f64 = 40.0;
 pub const DEFAULT_DLL_BW_HZ:f64 = 4.0;
 pub const DEFAULT_DOPPLER_STEP_HZ:usize = 50;
 pub const DEFAULT_DOPPLER_MAX_HZ:i16 = 10000;
-pub const DEFAULT_TEST_STAT_THRESHOLD:f64 = 0.008;
+pub const DEFAULT_TEST_STAT_THRESHOLD:f64 = 0.01;
 
 type Sample = (Complex<f64>, usize);
 

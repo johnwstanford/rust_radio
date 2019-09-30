@@ -28,7 +28,6 @@ pub struct CalendarAndEphemeris {
 impl CalendarAndEphemeris {
 
 	pub fn pos_ecef(&self, t_sv:f64) -> SatellitePosition {
-		eprintln!("pos_ecef()");
 		let dt_sv:f64 = self.a_f0 + self.a_f1*(t_sv - self.t_oc) + self.a_f2*(t_sv - self.t_oc).powi(2);
 		let t:f64 = t_sv - dt_sv;
 

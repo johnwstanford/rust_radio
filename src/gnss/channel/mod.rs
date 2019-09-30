@@ -100,7 +100,7 @@ impl Channel {
 								
 								// Populate the subframe buffer
 								self.sf_buffer.push_back(sf);
-								while self.sf_buffer.len() > 5 {
+								while self.sf_buffer.len() > 3 {
 									self.sf_buffer.pop_front();
 								}
 
@@ -141,7 +141,6 @@ impl Channel {
 				// TODO: account for GPS week rollover possibility
 				// TODO: check for ephemeris validity time
 				// TODO: consider returning a Result where the Err describes the reason for not producing a position
-				eprintln!("Updating ephemeris"); 
 				if (*iodc % 256) == (*iode2 as u16) && *iode2 == *iode3 { 
 					let new_calendar_and_ephemeris = pvt::CalendarAndEphemeris { t_oc:(*t_oc as f64), a_f0:*a_f0, a_f1:*a_f1, a_f2:*a_f2, t_oe:*t_oe, 
 						sqrt_a:*sqrt_a, dn:*dn, m0:*m0, e:*e, omega:*omega, omega0:*omega0, omega_dot:*omega_dot, cus:*cus, cuc:*cuc, crs:*crs, 
@@ -149,7 +148,7 @@ impl Channel {
 					self.calendar_and_ephemeris = Some(new_calendar_and_ephemeris);
 				}
 			},
-			(a, b, c) => eprintln!("Ephemeris not ready: {:?}, {:?}, {:?}", a, b, c)
+			(_, _, _) => {}
 		}
 	}
 

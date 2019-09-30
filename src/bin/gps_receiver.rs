@@ -81,10 +81,7 @@ fn main() {
 					let subframe_str = format!("{:?}", &sf).blue();
 					eprintln!("Subframe: {}", subframe_str);
 
-					let t_sv:f64 = sf.time_of_week();
-					eprintln!("t_sv: {}", t_sv);				
-					if let Some(ecef) = chn.ecef_position(t_sv) {
-						eprintln!("Position: {:?}", &ecef);
+					if let Some(ecef) = chn.ecef_position(sf.time_of_week()) {
 						let pos_with_metadata = PositionWithMetadata{
 							position: ecef,
 							prn: chn.prn,
@@ -124,39 +121,42 @@ fn main() {
 	}
 
 	// Position fix
-	let mut x_hat = Matrix4x1::from_row_slice_generic(U4, U1, &[6.371e6, 0.0, 0.0, all_results[0].position.gps_system_time]);
-	let dt_s:f64 = 1.0 / fs;
+	if all_results.len() >= 4 {
+		let mut x_hat = Matrix4x1::from_row_slice_generic(U4, U1, &[6.371e6, 0.0, 0.0, all_results[0].position.gps_system_time]);
+		let dt_s:f64 = 1.0 / fs;
 
-	let mut jacobian = DMatrix::from_element(all_results.len(), 4, 0.0);
+		let mut jacobian = DMatrix::from_element(all_results.len(), 4, 0.0);
 
-	for _ in 0..NUM_ITERATIONS {
-		let mut f_vec    = DMatrix::from_element(all_results.len(), 1, 0.0);
-		for i in 0..all_results.len() {
-			// Calculate the Jacobian matrix
-			let (x,y,z) = all_results[i].position.sv_ecef_position;
-			let t:f64 = all_results[i].position.gps_system_time;
-			let phi_c:f64 = all_results[i].receiver_code_phase as f64;
-			jacobian[(i, 0)] = -2.0 * (x_hat[(0,0)] - x);
-			jacobian[(i, 1)] = -2.0 * (x_hat[(1,0)] - y);
-			jacobian[(i, 2)] = -2.0 * (x_hat[(2,0)] - z);
-			jacobian[(i, 3)] =  2.0 * (x_hat[(3,0)] + dt_s*phi_c - t) * C.powi(2);
+		for _ in 0..NUM_ITERATIONS {
+			let mut f_vec    = DMatrix::from_element(all_results.len(), 1, 0.0);
+			for i in 0..all_results.len() {
+				// Calculate the Jacobian matrix
+				let (x,y,z) = all_results[i].position.sv_ecef_position;
+				let t:f64 = all_results[i].position.gps_system_time;
+				let phi_c:f64 = all_results[i].receiver_code_phase as f64;
+				jacobian[(i, 0)] = -2.0 * (x_hat[(0,0)] - x);
+				jacobian[(i, 1)] = -2.0 * (x_hat[(1,0)] - y);
+				jacobian[(i, 2)] = -2.0 * (x_hat[(2,0)] - z);
+				jacobian[(i, 3)] =  2.0 * (x_hat[(3,0)] + dt_s*phi_c - t) * C.powi(2);
 
-			// Calculate f vector, representing the error for each rows
-			f_vec[(i, 0)] = (x_hat[(3,0)] + dt_s*phi_c - t).powi(2) * C.powi(2) -
-				(x_hat[(0,0)] - x).powi(2) -
-				(x_hat[(1,0)] - y).powi(2) -
-				(x_hat[(2,0)] - z).powi(2);
+				// Calculate f vector, representing the error for each rows
+				f_vec[(i, 0)] = (x_hat[(3,0)] + dt_s*phi_c - t).powi(2) * C.powi(2) -
+					(x_hat[(0,0)] - x).powi(2) -
+					(x_hat[(1,0)] - y).powi(2) -
+					(x_hat[(2,0)] - z).powi(2);
+			}
+
+			// Calculate the pseudoinverse of the Jacobian
+			let pseudoinverse = (jacobian.tr_mul(&jacobian)).try_inverse().unwrap();
+
+			x_hat = x_hat.clone_owned() - (pseudoinverse * jacobian.transpose() * f_vec);
+			eprintln!("x={:1.3e} y={:1.3e} z={:1.3e} t={:1.3e}", x_hat[(0,0)], x_hat[(1,0)], x_hat[(2,0)], x_hat[(3,0)]);
 		}
 
-		// Calculate the pseudoinverse of the Jacobian
-		let pseudoinverse = (jacobian.tr_mul(&jacobian)).try_inverse().unwrap();
+		// This is the only output to STDOUT.  This allows you to pipe the results to a JSON file, but still see the status updates through STDERR as the code runs.
+		let result = Result{ all_sv_positions: all_results, obs_ecef:(x_hat[(0,0)], x_hat[(1,0)], x_hat[(2,0)]), obs_time_at_zero_code_phase:x_hat[(3,0)] };
+		println!("{}", serde_json::to_string(&result).unwrap());
 
-		x_hat = x_hat.clone_owned() - (pseudoinverse * jacobian.transpose() * f_vec);
-		eprintln!("x={:1.3e} y={:1.3e} z={:1.3e} t={:1.3e}", x_hat[(0,0)], x_hat[(1,0)], x_hat[(2,0)], x_hat[(3,0)]);
 	}
-
-	// This is the only output to STDOUT.  This allows you to pipe the results to a JSON file, but still see the status updates through STDERR as the code runs.
-	let result = Result{ all_sv_positions: all_results, obs_ecef:(x_hat[(0,0)], x_hat[(1,0)], x_hat[(2,0)]), obs_time_at_zero_code_phase:x_hat[(3,0)] };
-	println!("{}", serde_json::to_string(&result).unwrap());
 
 }

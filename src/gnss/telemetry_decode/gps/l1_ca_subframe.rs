@@ -46,6 +46,18 @@ pub enum CodeOnL2 {
 	CA_Code,
 }
 
+impl Subframe {
+
+	pub fn time_of_week(&self) -> f64 { match self {
+		Subframe::Subframe1{common, week_number:_, code_on_l2:_, ura_index:_, sv_health:_, iodc:_, t_gd:_, t_oc:_, a_f2:_, a_f1:_, a_f0:_} => (common.time_of_week_truncated as f64) * 6.0,
+		Subframe::Subframe2{common, iode:_, crs:_, dn:_, m0:_, cuc:_, e:_, cus:_, sqrt_a:_, t_oe:_, fit_interval:_, aodo:_ } => (common.time_of_week_truncated as f64) * 6.0,
+		Subframe::Subframe3{common, cic:_, omega0:_, cis:_, i0:_, crc:_, omega:_, omega_dot:_, iode:_, idot:_} => (common.time_of_week_truncated as f64) * 6.0,
+		Subframe::Subframe4{common, data_id:_, sv_id:_, page:_} => (common.time_of_week_truncated as f64) * 6.0,
+		Subframe::Subframe5{common, data_id:_, sv_id:_, page:_} => (common.time_of_week_truncated as f64) * 6.0,
+	}}
+
+}
+
 pub fn decode(bits:[bool; 240], start_sample_idx:usize) -> Result<Subframe, DigSigProcErr> {
 	let time_of_week_truncated:u32 = utils::bool_slice_to_u32(&bits[24..41]);
 	let subframe_id:u8 = utils::bool_slice_to_u8(&bits[43..46]);

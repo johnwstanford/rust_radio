@@ -13,7 +13,6 @@ use colored::*;
 use rust_radio::io;
 use rust_radio::gnss::channel;
 use rust_radio::gnss::pvt;
-use rust_radio::gnss::telemetry_decode::gps;
 use serde::{Serialize, Deserialize};
 
 use na::base::{DMatrix, Matrix4x1, U4, U1};
@@ -28,6 +27,7 @@ const NUM_ACTIVE_CHANNELS:usize = 7;
 struct PositionWithMetadata {
 	position: pvt::SatellitePosition,
 	prn: usize,
+	receiver_code_phase: usize,
 	carrier_freq_hz: f64,
 	cn0_snv_db_hz: f64,
 	carrier_lock_test: f64,
@@ -64,41 +64,36 @@ fn main() {
 
 	eprintln!("Decoding {} at {} [samples/sec]", &fname, &fs);
 
-	let mut inactive_channels:VecDeque<(channel::Channel, VecDeque<gps::l1_ca_subframe::Subframe>)> = (1..=32).map(|prn| {
-		(channel::new_channel(prn, fs, 0.0, 0.01), VecDeque::new())
-	}).collect();
-
-	let mut active_channels:VecDeque<(channel::Channel, VecDeque<gps::l1_ca_subframe::Subframe>)> = inactive_channels.drain(..NUM_ACTIVE_CHANNELS).collect();
+	let mut inactive_channels:VecDeque<channel::Channel> = (1..=32).map(|prn| channel::new_channel(prn, fs, 0.0, 0.01)).collect();
+	let mut active_channels:VecDeque<channel::Channel>   = inactive_channels.drain(..NUM_ACTIVE_CHANNELS).collect();
 
 	let mut all_results:Vec<PositionWithMetadata> = Vec::new();
 
 	for s in io::file_source_i16_complex(&fname) {
 
-		for (chn, sf_buffer) in &mut active_channels {
+		for chn in &mut active_channels {
 			match chn.apply(s) {
 				channel::ChannelResult::Acquisition{ doppler_hz, test_stat } => {
 					eprintln!("{}", format!("PRN {}: Acquired at {} [Hz] doppler, {} test statistic, attempting to track", chn.prn, doppler_hz, test_stat).green());
 				},
-				channel::ChannelResult::Ok(_, sf, _) => {
+				channel::ChannelResult::Ok(_, sf, start_idx) => {
 					// Print subframe to STDERR
 					let subframe_str = format!("{:?}", &sf).blue();
-					eprintln!("{}", subframe_str);
+					eprintln!("Subframe: {}", subframe_str);
 
-					sf_buffer.push_back(sf);
-					
-					// Limit subframe buffer size to 3
-					while sf_buffer.len() > 3 { sf_buffer.pop_front(); }
-					if sf_buffer.len() == 3 {
-						if let Some(ecef) = pvt::get_ecef(sf_buffer[0], sf_buffer[1], sf_buffer[2]) {
-							let pos_with_metadata = PositionWithMetadata{
-								position: ecef,
-								prn: chn.prn,
-								carrier_freq_hz: chn.carrier_freq_hz(),
-								cn0_snv_db_hz: chn.last_cn0_snv_db_hz(),
-								carrier_lock_test: chn.last_carrier_lock_test()
-							};
-							all_results.push(pos_with_metadata);
-						}
+					let t_sv:f64 = sf.time_of_week();
+					eprintln!("t_sv: {}", t_sv);				
+					if let Some(ecef) = chn.ecef_position(t_sv) {
+						eprintln!("Position: {:?}", &ecef);
+						let pos_with_metadata = PositionWithMetadata{
+							position: ecef,
+							prn: chn.prn,
+							receiver_code_phase: start_idx,
+							carrier_freq_hz: chn.carrier_freq_hz(),
+							cn0_snv_db_hz: chn.last_cn0_snv_db_hz(),
+							carrier_lock_test: chn.last_carrier_lock_test()
+						};
+						all_results.push(pos_with_metadata);
 					}
 
 				},
@@ -111,10 +106,10 @@ fn main() {
 		if (s.1 % (fs as usize / 10) == 0) && (s.1 > 0) {
 			for _ in 0..NUM_ACTIVE_CHANNELS {
 				let this_channel = active_channels.pop_front().unwrap();
-				if this_channel.0.state() == channel::ChannelState::Acquisition {
+				if this_channel.state() == channel::ChannelState::Acquisition {
 					// Move this channel to inactive and replace it
 					let replacement_channel = inactive_channels.pop_front().unwrap();
-					eprintln!("{:.1} [sec]: Putting PRN {} in the inactive buffer, replacing with PRN {}", (s.1 as f64)/fs, this_channel.0.prn, replacement_channel.0.prn);
+					eprintln!("{:.1} [sec]: Putting PRN {} in the inactive buffer, replacing with PRN {}", (s.1 as f64)/fs, this_channel.prn, replacement_channel.prn);
 					inactive_channels.push_back(this_channel);
 					active_channels.push_back(replacement_channel);
 				} else {
@@ -140,7 +135,7 @@ fn main() {
 			// Calculate the Jacobian matrix
 			let (x,y,z) = all_results[i].position.sv_ecef_position;
 			let t:f64 = all_results[i].position.gps_system_time;
-			let phi_c:f64 = all_results[i].position.receiver_code_phase as f64;
+			let phi_c:f64 = all_results[i].receiver_code_phase as f64;
 			jacobian[(i, 0)] = -2.0 * (x_hat[(0,0)] - x);
 			jacobian[(i, 1)] = -2.0 * (x_hat[(1,0)] - y);
 			jacobian[(i, 2)] = -2.0 * (x_hat[(2,0)] - z);

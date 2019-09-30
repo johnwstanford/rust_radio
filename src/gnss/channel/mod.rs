@@ -1,12 +1,15 @@
 
 extern crate rustfft;
 
+use std::collections::VecDeque;
+
 use self::rustfft::num_complex::Complex;
 
 use ::DigSigProcErr;
 use ::gnss::{acquisition, tracking, telemetry_decode};
 use ::gnss::telemetry_decode::gps::l1_ca_subframe;
 use ::gnss::gps::l1_ca_signal;
+use ::gnss::pvt;
 use ::utils;
 
 pub const DEFAULT_PLL_BW_HZ:f64 = 40.0;
@@ -16,6 +19,7 @@ pub const DEFAULT_DOPPLER_MAX_HZ:i16 = 10000;
 pub const DEFAULT_TEST_STAT_THRESHOLD:f64 = 0.01;
 
 type Sample = (Complex<f64>, usize);
+type SF = l1_ca_subframe::Subframe;
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum ChannelState {
@@ -28,7 +32,7 @@ pub enum ChannelState {
 pub enum ChannelResult {
 	NotReady(&'static str),
 	Acquisition{ doppler_hz:i16, test_stat:f64 },
-	Ok(String, l1_ca_subframe::Subframe, usize),
+	Ok(String, SF, usize),
 	Err(DigSigProcErr),
 }
 
@@ -42,6 +46,8 @@ pub struct Channel {
 	last_acq_doppler:i16,
 	last_acq_test_stat:f64,
 	last_sample_idx:usize,
+	sf_buffer:VecDeque<SF>,
+	calendar_and_ephemeris:Option<pvt::CalendarAndEphemeris>,
 }
 
 impl Channel {
@@ -91,6 +97,17 @@ impl Channel {
 						match self.tlm.apply((bit, bit_idx)) {
 							telemetry_decode::gps::TelemetryDecoderResult::Ok(sf, bits, start_idx) => {
 								let bytes:Vec<String> = utils::bool_slice_to_byte_vec(&bits).iter().map(|b| format!("{:02X}", b)).collect();
+								
+								// Populate the subframe buffer
+								self.sf_buffer.push_back(sf);
+								while self.sf_buffer.len() > 5 {
+									self.sf_buffer.pop_front();
+								}
+
+								// Populate channel data derived from subframes
+								self.check_calendar_and_ephemeris();
+
+								// Return the result
 								ChannelResult::Ok(bytes.join(""), sf, start_idx)							
 							},
 							telemetry_decode::gps::TelemetryDecoderResult::NotReady => ChannelResult::NotReady("Have a new bit, but new subframe not yet ready"),
@@ -110,6 +127,32 @@ impl Channel {
 		}
 	}
 
+	pub fn ecef_position(&self, t_sv:f64) -> Option<pvt::SatellitePosition> { match &self.calendar_and_ephemeris {
+		Some(cae) => Some(cae.pos_ecef(t_sv)),
+		None => None,
+	}}
+
+	fn check_calendar_and_ephemeris(&mut self) {
+		match (self.sf_buffer.get(0), self.sf_buffer.get(1), self.sf_buffer.get(2)) {
+			(Some(SF::Subframe1{common:_, week_number:_, code_on_l2:_, ura_index:_, sv_health:_, iodc, t_gd:_, t_oc, a_f2, a_f1, a_f0}), 
+			 Some(SF::Subframe2{common:_, iode:iode2, crs, dn, m0, cuc, e, cus, sqrt_a, t_oe, fit_interval:_, aodo:_ }), 
+			 Some(SF::Subframe3{common:_, cic, omega0, cis, i0, crc, omega, omega_dot, iode:iode3, idot})) => {
+				// TODO: make other time corrections (ionosphere, etc) 
+				// TODO: account for GPS week rollover possibility
+				// TODO: check for ephemeris validity time
+				// TODO: consider returning a Result where the Err describes the reason for not producing a position
+				eprintln!("Updating ephemeris"); 
+				if (*iodc % 256) == (*iode2 as u16) && *iode2 == *iode3 { 
+					let new_calendar_and_ephemeris = pvt::CalendarAndEphemeris { t_oc:(*t_oc as f64), a_f0:*a_f0, a_f1:*a_f1, a_f2:*a_f2, t_oe:*t_oe, 
+						sqrt_a:*sqrt_a, dn:*dn, m0:*m0, e:*e, omega:*omega, omega0:*omega0, omega_dot:*omega_dot, cus:*cus, cuc:*cuc, crs:*crs, 
+						crc:*crc, cis:*cis, cic:*cic, i0:*i0, idot:*idot };
+					self.calendar_and_ephemeris = Some(new_calendar_and_ephemeris);
+				}
+			},
+			(a, b, c) => eprintln!("Ephemeris not ready: {:?}, {:?}, {:?}", a, b, c)
+		}
+	}
+
 }
 
 pub fn new_default_channel(prn:usize, fs:f64, acq_freq:f64) -> Channel { new_channel(prn, fs, acq_freq, DEFAULT_TEST_STAT_THRESHOLD) }
@@ -121,5 +164,6 @@ pub fn new_channel(prn:usize, fs:f64, acq_freq:f64, test_stat:f64) -> Channel {
 	let trk = tracking::new_default_tracker(prn, acq_freq, fs, DEFAULT_PLL_BW_HZ, DEFAULT_DLL_BW_HZ);
 	let tlm = telemetry_decode::gps::TelemetryDecoder::new();
 
-	Channel{ prn, fs, state, acq, trk, tlm, last_acq_doppler:0, last_acq_test_stat: 0.0, last_sample_idx: 0 }
+	Channel{ prn, fs, state, acq, trk, tlm, last_acq_doppler:0, last_acq_test_stat: 0.0, last_sample_idx: 0, 
+		sf_buffer: VecDeque::new(), calendar_and_ephemeris: None }
 }

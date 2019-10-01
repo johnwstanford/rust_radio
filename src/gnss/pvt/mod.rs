@@ -17,6 +17,22 @@ pub struct SatellitePosition {
 }
 
 #[derive(Debug)]
+pub struct IonosphericModel {
+	alpha0:f64, alpha1:f64, alpha2:f64, alpha3:f64, 
+	beta0:f64,  beta1:f64,  beta2:f64,  beta3:f64
+}
+
+impl IonosphericModel {
+	
+	pub fn delay(obs_ecef:(f64, f64, f64), sv_ecef:(f64, f64, f64), t:f64) -> f64 {
+
+
+		panic!("Not yet implemented");
+	}
+
+}
+
+#[derive(Debug)]
 pub struct CalendarAndEphemeris {
 	pub t_oc: f64, pub a_f0: f64,   pub a_f1: f64,   pub a_f2: f64,
 	pub t_oe: f64, pub sqrt_a: f64, pub dn: f64,     pub m0: f64,

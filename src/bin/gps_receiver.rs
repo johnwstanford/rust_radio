@@ -11,6 +11,7 @@ use std::collections::VecDeque;
 use clap::{Arg, App};
 use colored::*;
 use rust_radio::io;
+use rust_radio::utils::kinematics;
 use rust_radio::gnss::channel;
 use rust_radio::gnss::pvt;
 use serde::{Serialize, Deserialize};
@@ -150,7 +151,7 @@ fn main() {
 			let pseudoinverse = (jacobian.tr_mul(&jacobian)).try_inverse().unwrap();
 
 			x_hat = x_hat.clone_owned() - (pseudoinverse * jacobian.transpose() * f_vec);
-			eprintln!("x={:1.3e} y={:1.3e} z={:1.3e} t={:1.3e}", x_hat[(0,0)], x_hat[(1,0)], x_hat[(2,0)], x_hat[(3,0)]);
+			eprintln!("{:?}", kinematics::ecef_to_wgs84(x_hat[(0,0)], x_hat[(1,0)], x_hat[(2,0)]));
 		}
 
 		// This is the only output to STDOUT.  This allows you to pipe the results to a JSON file, but still see the status updates through STDERR as the code runs.

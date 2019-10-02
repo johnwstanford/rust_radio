@@ -12,11 +12,13 @@ use clap::{Arg, App};
 use colored::*;
 use rust_radio::io;
 use rust_radio::utils::kinematics;
-use rust_radio::gnss::channel;
-use rust_radio::gnss::pvt;
+use rust_radio::gnss::{channel, pvt, telemetry_decode};
 use serde::{Serialize, Deserialize};
 
 use na::base::{DMatrix, Matrix3x1, U3, U1};
+
+type SF = telemetry_decode::gps::l1_ca_subframe::Subframe;
+type SF4 = telemetry_decode::gps::l1_ca_subframe::Subframe4;
 
 const C:f64 = 2.99792458e8;					 // [m/s] speed of light
 
@@ -32,6 +34,7 @@ struct PositionWithMetadata {
 	carrier_freq_hz: f64,
 	cn0_snv_db_hz: f64,
 	carrier_lock_test: f64,
+	delay_iono: f64,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -69,6 +72,7 @@ fn main() {
 	let mut active_channels:VecDeque<channel::Channel>   = inactive_channels.drain(..NUM_ACTIVE_CHANNELS).collect();
 
 	let mut all_results:Vec<PositionWithMetadata> = Vec::new();
+	let mut ionosphere:Option<pvt::IonosphericModel> = None;
 
 	for s in io::file_source_i16_complex(&fname) {
 
@@ -82,6 +86,14 @@ fn main() {
 					let subframe_str = format!("{:?}", &sf).blue();
 					eprintln!("Subframe: {}", subframe_str);
 
+					match sf {
+						SF::Subframe4{common:_, data_id:_, sv_id:_, page:SF4::Page18{ alpha0, alpha1, alpha2, alpha3, beta0, beta1, beta2, beta3, 
+							a1:_, a0:_, t_ot:_, wn_t:_, delta_t_LS:_, wn_LSF:_, delta_t_LSF:_ }} => {
+								ionosphere = Some(pvt::IonosphericModel{alpha0, alpha1, alpha2, alpha3, beta0, beta1, beta2, beta3})
+							},
+						_ => {}
+					}
+
 					if let Some(ecef) = chn.ecef_position(sf.time_of_week()) {
 						let pos_with_metadata = PositionWithMetadata{
 							position: ecef,
@@ -89,7 +101,8 @@ fn main() {
 							receiver_code_phase: start_idx,
 							carrier_freq_hz: chn.carrier_freq_hz(),
 							cn0_snv_db_hz: chn.last_cn0_snv_db_hz(),
-							carrier_lock_test: chn.last_carrier_lock_test()
+							carrier_lock_test: chn.last_carrier_lock_test(),
+							delay_iono: 0.0,
 						};
 						all_results.push(pos_with_metadata);
 					}
@@ -171,8 +184,14 @@ fn main() {
 		// This is the only output to STDOUT.  This allows you to pipe the results to a JSON file, but still see the status updates through STDERR as the code runs.
 		let phi:f64 = x_hat[(0,0)];
 		let lam:f64 = x_hat[(1,0)];
+		let obs_ecef = (a*lam.cos()*phi.cos(), a*lam.sin()*phi.cos(), b*phi.sin());
+		if let Some(iono) = ionosphere {
+			for result in &mut all_results {
+				result.delay_iono = iono.delay(obs_ecef, result.position.sv_ecef_position, result.position.gps_system_time);
+			}			
+		}
 
-		let result = Result{ all_sv_positions: all_results, obs_ecef:(a*lam.cos()*phi.cos(), a*lam.sin()*phi.cos(), b*phi.sin()), obs_time_at_zero_code_phase:x_hat[(2,0)] };
+		let result = Result{ all_sv_positions: all_results, obs_ecef, obs_time_at_zero_code_phase:x_hat[(2,0)] };
 		println!("{}", serde_json::to_string(&result).unwrap());
 
 	}

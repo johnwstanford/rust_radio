@@ -4,9 +4,9 @@ pub const WGS84_SEMI_MINOR_AXIS_METERS:f64 = 6356752.314245;
 
 #[derive(Debug)]
 pub struct PositionWGS84 {
-	latitude:f64,
-	longitude:f64,
-	height_above_ellipsoid:f64,
+	pub latitude:f64,
+	pub longitude:f64,
+	pub height_above_ellipsoid:f64,
 }
 
 pub fn ecef_to_wgs84(e1:f64, e2:f64, e3:f64) -> PositionWGS84 {

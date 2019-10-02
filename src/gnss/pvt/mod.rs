@@ -25,7 +25,7 @@ pub struct IonosphericModel {
 impl IonosphericModel {
 	
 	pub fn delay(obs_ecef:(f64, f64, f64), sv_ecef:(f64, f64, f64), t:f64) -> f64 {
-
+		
 
 		panic!("Not yet implemented");
 	}

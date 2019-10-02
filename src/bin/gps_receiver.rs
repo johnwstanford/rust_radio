@@ -16,7 +16,7 @@ use rust_radio::gnss::channel;
 use rust_radio::gnss::pvt;
 use serde::{Serialize, Deserialize};
 
-use na::base::{DMatrix, Matrix4x1, U4, U1};
+use na::base::{DMatrix, Matrix3x1, U3, U1};
 
 const C:f64 = 2.99792458e8;					 // [m/s] speed of light
 
@@ -123,10 +123,12 @@ fn main() {
 
 	// Position fix
 	if all_results.len() >= 4 {
-		let mut x_hat = Matrix4x1::from_row_slice_generic(U4, U1, &[6.371e6, 0.0, 0.0, all_results[0].position.gps_system_time]);
+		let a:f64 = kinematics::WGS84_SEMI_MAJOR_AXIS_METERS;
+		let b:f64 = kinematics::WGS84_SEMI_MINOR_AXIS_METERS;
+		let mut x_hat = Matrix3x1::from_row_slice_generic(U3, U1, &[0.0, 0.0, all_results[0].position.gps_system_time]);
 		let dt_s:f64 = 1.0 / fs;
 
-		let mut jacobian = DMatrix::from_element(all_results.len(), 4, 0.0);
+		let mut jacobian = DMatrix::from_element(all_results.len(), 3, 0.0);
 
 		for _ in 0..NUM_ITERATIONS {
 			let mut f_vec    = DMatrix::from_element(all_results.len(), 1, 0.0);
@@ -135,27 +137,42 @@ fn main() {
 				let (x,y,z) = all_results[i].position.sv_ecef_position;
 				let t:f64 = all_results[i].position.gps_system_time;
 				let phi_c:f64 = all_results[i].receiver_code_phase as f64;
-				jacobian[(i, 0)] = -2.0 * (x_hat[(0,0)] - x);
-				jacobian[(i, 1)] = -2.0 * (x_hat[(1,0)] - y);
-				jacobian[(i, 2)] = -2.0 * (x_hat[(2,0)] - z);
-				jacobian[(i, 3)] =  2.0 * (x_hat[(3,0)] + dt_s*phi_c - t) * C.powi(2);
 
-				// Calculate f vector, representing the error for each rows
-				f_vec[(i, 0)] = (x_hat[(3,0)] + dt_s*phi_c - t).powi(2) * C.powi(2) -
-					(x_hat[(0,0)] - x).powi(2) -
-					(x_hat[(1,0)] - y).powi(2) -
-					(x_hat[(2,0)] - z).powi(2);
+				let phi:f64 = x_hat[(0,0)];
+				let lam:f64 = x_hat[(1,0)];
+
+				let et:f64 = t - x_hat[(2,0)] - dt_s*phi_c;
+				let ex:f64 = x - a*lam.cos()*phi.cos();
+				let ey:f64 = y - a*lam.sin()*phi.cos();
+				let ez:f64 = z - b*phi.sin();
+
+				// d_residual / d_phi
+				jacobian[(i, 0)] = -2.0*ex*(a*lam.cos()*phi.sin()) + 2.0*ey*(a*lam.sin()*phi.sin()) + 2.0*ez*(b*phi.cos());
+
+				// d_residual / d_lam
+				jacobian[(i, 1)] = -2.0*ex*(a*lam.sin()*phi.cos()) + 2.0*ey*(a*lam.cos()*phi.cos());
+
+				// d_residual / d_time
+				jacobian[(i, 2)] = -2.0 * et * C.powi(2);
+
+				// Calculate f vector, representing the error for each row
+				f_vec[(i, 0)] = (et.powi(2)*C.powi(2)) - ex.powi(2) - ey.powi(2) - ez.powi(2);
 			}
 
 			// Calculate the pseudoinverse of the Jacobian
 			let pseudoinverse = (jacobian.tr_mul(&jacobian)).try_inverse().unwrap();
 
 			x_hat = x_hat.clone_owned() - (pseudoinverse * jacobian.transpose() * f_vec);
-			eprintln!("{:?}", kinematics::ecef_to_wgs84(x_hat[(0,0)], x_hat[(1,0)], x_hat[(2,0)]));
+			x_hat[(0,0)] = (x_hat[(0,0)]).sin().atan2((x_hat[(0,0)]).cos());
+			x_hat[(1,0)] = (x_hat[(1,0)]).sin().atan2((x_hat[(1,0)]).cos());
+			eprintln!("phi={:.4} [deg], lam={:.4} [deg], t0={} [sec]", x_hat[(0,0)]*57.3, x_hat[(1,0)]*57.3, x_hat[(2,0)]);
 		}
 
 		// This is the only output to STDOUT.  This allows you to pipe the results to a JSON file, but still see the status updates through STDERR as the code runs.
-		let result = Result{ all_sv_positions: all_results, obs_ecef:(x_hat[(0,0)], x_hat[(1,0)], x_hat[(2,0)]), obs_time_at_zero_code_phase:x_hat[(3,0)] };
+		let phi:f64 = x_hat[(0,0)];
+		let lam:f64 = x_hat[(1,0)];
+
+		let result = Result{ all_sv_positions: all_results, obs_ecef:(a*lam.cos()*phi.cos(), a*lam.sin()*phi.cos(), b*phi.sin()), obs_time_at_zero_code_phase:x_hat[(2,0)] };
 		println!("{}", serde_json::to_string(&result).unwrap());
 
 	}

@@ -18,6 +18,7 @@ use std::f64::consts;
 pub struct SatellitePosition {
 	pub sv_ecef_position:(f64, f64, f64),
 	pub gps_system_time:f64,
+	pub tk:f64,
 }
 
 #[derive(Debug)]
@@ -58,8 +59,22 @@ impl IonosphericModel {
 		// let az_semicircles:f64 = az_radians / consts::PI;
 		let el_semicircles:f64 = el_radians / consts::PI;
 
-		let phi_u:f64 = obs_wgs84.latitude  / consts::PI;
-		let lam_u:f64 = obs_wgs84.longitude / consts::PI;
+		let mut phi_u:f64 = obs_wgs84.latitude  / consts::PI;
+		let mut lam_u:f64 = obs_wgs84.longitude / consts::PI;
+		if phi_u > 0.5 {
+			phi_u = 1.0 - phi_u;
+			lam_u -= 1.0;
+		}
+		if phi_u < -0.5 {
+			phi_u = -1.0 - phi_u;
+			lam_u -= 1.0;
+		}
+		if lam_u > 1.0 {
+			lam_u -= 2.0;
+		}
+		if lam_u < -1.0 {
+			lam_u += 2.0;
+		}
 
 		let psi:f64 = (0.0137/(el_semicircles + 0.11)) - 0.022;		// [semicircles]
 		let phi_i:f64 = {										    // [semicircles]
@@ -185,12 +200,15 @@ impl CalendarAndEphemeris {
 	    let y_k:f64 = (x_kp * omega_k.sin()) + (y_kp * i_k.cos() * omega_k.cos());
 
 	    // z_k = y_kp*sin(i_k)
-	    let z_k:f64 = y_kp * i_k.sin();
+	    let z_k:f64 = y_kp * (i_k.sin());
 
 	    // Relativistic correction to transmission time
 		let dt_r:f64 = F * self.e * self.sqrt_a * ek.sin();
 
-		SatellitePosition{ sv_ecef_position:(x_k, y_k, z_k), gps_system_time:t+dt_r }
+	    eprintln!("tk={:.8e}, i_k={:.8e}, x_kp={:.8e}, y_kp={:.8e}, omega_k={:.8e}, x_k={:.8e}, y_k={:.8e}, z_k={:.8e}, dt_r={:.8e}", 
+	    	&tk, &i_k, &x_kp, &y_kp, &omega_k, &x_k, &y_k, &z_k, dt_r);
+
+		SatellitePosition{ sv_ecef_position:(x_k, y_k, z_k), gps_system_time:t+dt_r, tk }
 
 	} 
 

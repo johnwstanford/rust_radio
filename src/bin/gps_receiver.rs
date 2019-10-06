@@ -94,17 +94,21 @@ fn main() {
 						_ => {}
 					}
 
-					if let Some(ecef) = chn.ecef_position(sf.time_of_week()) {
-						let pos_with_metadata = PositionWithMetadata{
-							position: ecef,
-							prn: chn.prn,
-							receiver_code_phase: start_idx,
-							carrier_freq_hz: chn.carrier_freq_hz(),
-							cn0_snv_db_hz: chn.last_cn0_snv_db_hz(),
-							carrier_lock_test: chn.last_carrier_lock_test(),
-							delay_iono: 0.0,
-						};
-						all_results.push(pos_with_metadata);
+					if let Some(prev_sf) = chn.second_most_recent_subframe() {
+						// Note IS-GPS-200H, para. 20.3.3.2 says that the TOW in a subframe is the time for the following subframe, not the current one
+						eprint!("PRN {}, ", chn.prn);
+						if let Some(ecef) = chn.ecef_position(prev_sf.time_of_week()) {
+							let pos_with_metadata = PositionWithMetadata{
+								position: ecef,
+								prn: chn.prn,
+								receiver_code_phase: start_idx,				// Previous subframe time-of-week goes with current subframe start index
+								carrier_freq_hz: chn.carrier_freq_hz(),
+								cn0_snv_db_hz: chn.last_cn0_snv_db_hz(),
+								carrier_lock_test: chn.last_carrier_lock_test(),
+								delay_iono: 0.0,
+							};
+							all_results.push(pos_with_metadata);
+						}
 					}
 
 				},
@@ -192,7 +196,7 @@ fn main() {
 		}
 
 		let result = Result{ all_sv_positions: all_results, obs_ecef, obs_time_at_zero_code_phase:x_hat[(2,0)] };
-		println!("{}", serde_json::to_string(&result).unwrap());
+		println!("{}", serde_json::to_string_pretty(&result).unwrap());
 
 	}
 

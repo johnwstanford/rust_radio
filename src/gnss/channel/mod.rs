@@ -127,6 +127,10 @@ impl Channel {
 		}
 	}
 
+	pub fn most_recent_subframe(&self) -> Option<&SF> { self.sf_buffer.back() }
+	pub fn second_most_recent_subframe(&self) -> Option<&SF> { 	// TODO: consider reversing sf_buffer to make this easier if it doesn't impact anything else
+		if self.sf_buffer.len() >= 2 { self.sf_buffer.get(self.sf_buffer.len()-2) } else { None }
+	}
 	pub fn ecef_position(&self, t_sv:f64) -> Option<pvt::SatellitePosition> { match &self.calendar_and_ephemeris {
 		Some(cae) => Some(cae.pos_ecef(t_sv)),
 		None => None,

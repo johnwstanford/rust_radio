@@ -108,13 +108,15 @@ impl IonosphericModel {
 
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize, Clone, Copy)]
 pub struct CalendarAndEphemeris {
-	pub t_oc: f64, pub a_f0: f64,   pub a_f1: f64,   pub a_f2: f64,
-	pub t_oe: f64, pub sqrt_a: f64, pub dn: f64,     pub m0: f64,
-	pub e: f64,    pub omega: f64,  pub omega0: f64, pub omega_dot: f64,
-	pub cus: f64,  pub cuc: f64,    pub crs: f64,    pub crc: f64,
-	pub cis: f64,  pub cic: f64,    pub i0: f64,     pub idot: f64,
+	pub week_number:u16, pub t_gd:f64,	  pub aodo: u8,    pub fit_interval:bool,
+	pub t_oc: f64,       pub a_f0: f64,   pub a_f1: f64,   pub a_f2: f64,
+	pub t_oe: f64,       pub sqrt_a: f64, pub dn: f64,     pub m0: f64,
+	pub e: f64,          pub omega: f64,  pub omega0: f64, pub omega_dot: f64,
+	pub cus: f64,        pub cuc: f64,    pub crs: f64,    pub crc: f64,
+	pub cis: f64,        pub cic: f64,    pub i0: f64,     pub idot: f64,
+	pub iodc: u16,
 }
 
 impl CalendarAndEphemeris {
@@ -205,8 +207,8 @@ impl CalendarAndEphemeris {
 	    // Relativistic correction to transmission time
 		let dt_r:f64 = F * self.e * self.sqrt_a * ek.sin();
 
-	    eprintln!("tk={:.8e}, i_k={:.8e}, x_kp={:.8e}, y_kp={:.8e}, omega_k={:.8e}, x_k={:.8e}, y_k={:.8e}, z_k={:.8e}, dt_r={:.8e}", 
-	    	&tk, &i_k, &x_kp, &y_kp, &omega_k, &x_k, &y_k, &z_k, dt_r);
+	    //eprintln!("tk={:.8e}, i_k={:.8e}, x_kp={:.8e}, y_kp={:.8e}, omega_k={:.8e}, x_k={:.8e}, y_k={:.8e}, z_k={:.8e}, dt_r={:.8e}", 
+	    //	&tk, &i_k, &x_kp, &y_kp, &omega_k, &x_k, &y_k, &z_k, dt_r);
 
 		SatellitePosition{ sv_ecef_position:(x_k, y_k, z_k), gps_system_time:t+dt_r, tk }
 

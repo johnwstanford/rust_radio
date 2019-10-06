@@ -10,7 +10,6 @@ use ::gnss::{acquisition, tracking, telemetry_decode};
 use ::gnss::telemetry_decode::gps::l1_ca_subframe;
 use ::gnss::gps::l1_ca_signal;
 use ::gnss::pvt;
-use ::utils;
 
 pub const DEFAULT_PLL_BW_HZ:f64 = 40.0;
 pub const DEFAULT_DLL_BW_HZ:f64 = 4.0;
@@ -32,7 +31,8 @@ pub enum ChannelState {
 pub enum ChannelResult {
 	NotReady(&'static str),
 	Acquisition{ doppler_hz:i16, test_stat:f64 },
-	Ok(String, SF, usize),
+	Ok{sf:Option<SF>, prompt_i:f64, carrier_doppler_hz:f64,
+		carrier_phase_rad:f64, code_phase_samples:f64, sample_idx:usize},
 	Err(DigSigProcErr),
 }
 
@@ -59,6 +59,7 @@ impl Channel {
 	pub fn last_acq_doppler(&self) -> i16 { self.last_acq_doppler }
 	pub fn last_acq_test_stat(&self) -> f64 { self.last_acq_test_stat }
 	pub fn state(&self) -> ChannelState { self.state }
+	pub fn calendar_and_ephemeris(&self) -> Option<pvt::CalendarAndEphemeris> { self.calendar_and_ephemeris }
 
 	pub fn initialize(&mut self, acq_freq:f64, code_phase:usize) {
 		self.state = match code_phase {
@@ -92,12 +93,11 @@ impl Channel {
 			},
 			ChannelState::Tracking => { 
 				match self.trk.apply(s) {
-					tracking::TrackingResult::Ok{bit, bit_idx} => {
+					tracking::TrackingResult::Ok{prompt_i, bit_idx} => {
 						// The tracker has a lock and produced a bit, so pass it into the telemetry decoder and match on the result
-						match self.tlm.apply((bit, bit_idx)) {
-							telemetry_decode::gps::TelemetryDecoderResult::Ok(sf, bits, start_idx) => {
-								let bytes:Vec<String> = utils::bool_slice_to_byte_vec(&bits).iter().map(|b| format!("{:02X}", b)).collect();
-								
+						let sf:Option<SF> = match self.tlm.apply((prompt_i > 0.0, bit_idx)) {
+							telemetry_decode::gps::TelemetryDecoderResult::Ok(sf, _, _) => {
+		
 								// Populate the subframe buffer
 								self.sf_buffer.push_back(sf);
 								while self.sf_buffer.len() > 3 {
@@ -107,15 +107,19 @@ impl Channel {
 								// Populate channel data derived from subframes
 								self.check_calendar_and_ephemeris();
 
-								// Return the result
-								ChannelResult::Ok(bytes.join(""), sf, start_idx)							
+								Some(sf)
 							},
-							telemetry_decode::gps::TelemetryDecoderResult::NotReady => ChannelResult::NotReady("Have a new bit, but new subframe not yet ready"),
-							telemetry_decode::gps::TelemetryDecoderResult::Err(e) => {
+							telemetry_decode::gps::TelemetryDecoderResult::NotReady => None,
+							telemetry_decode::gps::TelemetryDecoderResult::Err(_) => {
 								self.state = ChannelState::Acquisition;
-								ChannelResult::Err(e)
+								None
 							}
-						}					
+						};
+
+						ChannelResult::Ok{sf, prompt_i, carrier_doppler_hz:self.trk.carrier_freq_hz(),
+							carrier_phase_rad:self.trk.carrier_phase_rad(), 
+							code_phase_samples:self.trk.code_phase_samples(), 
+							sample_idx:bit_idx }					
 					},
 					tracking::TrackingResult::NotReady => ChannelResult::NotReady("Waiting on next bit from tracker"),
 					tracking::TrackingResult::Err(e) => {
@@ -138,17 +142,18 @@ impl Channel {
 
 	fn check_calendar_and_ephemeris(&mut self) {
 		match (self.sf_buffer.get(0), self.sf_buffer.get(1), self.sf_buffer.get(2)) {
-			(Some(SF::Subframe1{common:_, week_number:_, code_on_l2:_, ura_index:_, sv_health:_, iodc, t_gd:_, t_oc, a_f2, a_f1, a_f0}), 
-			 Some(SF::Subframe2{common:_, iode:iode2, crs, dn, m0, cuc, e, cus, sqrt_a, t_oe, fit_interval:_, aodo:_ }), 
+			(Some(SF::Subframe1{common:_, week_number, code_on_l2:_, ura_index:_, sv_health:_, iodc, t_gd, t_oc, a_f2, a_f1, a_f0}), 
+			 Some(SF::Subframe2{common:_, iode:iode2, crs, dn, m0, cuc, e, cus, sqrt_a, t_oe, fit_interval, aodo }), 
 			 Some(SF::Subframe3{common:_, cic, omega0, cis, i0, crc, omega, omega_dot, iode:iode3, idot})) => {
 				// TODO: make other time corrections (ionosphere, etc) 
 				// TODO: account for GPS week rollover possibility
 				// TODO: check for ephemeris validity time
 				// TODO: consider returning a Result where the Err describes the reason for not producing a position
 				if (*iodc % 256) == (*iode2 as u16) && *iode2 == *iode3 { 
-					let new_calendar_and_ephemeris = pvt::CalendarAndEphemeris { t_oc:(*t_oc as f64), a_f0:*a_f0, a_f1:*a_f1, a_f2:*a_f2, t_oe:*t_oe, 
+					let new_calendar_and_ephemeris = pvt::CalendarAndEphemeris { week_number:*week_number, t_gd:*t_gd, fit_interval:*fit_interval, aodo:*aodo,
+						t_oc:(*t_oc as f64), a_f0:*a_f0, a_f1:*a_f1, a_f2:*a_f2, t_oe:*t_oe, 
 						sqrt_a:*sqrt_a, dn:*dn, m0:*m0, e:*e, omega:*omega, omega0:*omega0, omega_dot:*omega_dot, cus:*cus, cuc:*cuc, crs:*crs, 
-						crc:*crc, cis:*cis, cic:*cic, i0:*i0, idot:*idot };
+						crc:*crc, cis:*cis, cic:*cic, i0:*i0, idot:*idot, iodc:*iodc };
 					self.calendar_and_ephemeris = Some(new_calendar_and_ephemeris);
 				}
 			},

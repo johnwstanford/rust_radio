@@ -44,7 +44,7 @@ enum TrackingState {
 #[derive(Debug)]
 pub enum TrackingResult {
 	NotReady,
-	Ok{ bit:bool, bit_idx:usize },
+	Ok{ prompt_i:f64, bit_idx:usize },
 	Err(DigSigProcErr),
 }
 
@@ -178,7 +178,7 @@ impl Tracking {
 						// We have enough prompts to build a bit
 						let first_idx:usize = self.prompt_buffer[0].1;
 						let this_bit_re:f64 = self.prompt_buffer.drain(..20).map(|(c, _)| c.re).fold(0.0, |a,b| a+b);
-						TrackingResult::Ok{ bit:(this_bit_re > 0.0), bit_idx: first_idx} 
+						TrackingResult::Ok{ prompt_i:this_bit_re, bit_idx: first_idx} 
 					}
 				} else { TrackingResult::NotReady }
 
@@ -188,6 +188,8 @@ impl Tracking {
 	}
 
 	pub fn carrier_freq_hz(&self) -> f64 { (self.carrier_dphase_rad * self.fs) / (2.0 * consts::PI) }
+	pub fn carrier_phase_rad(&self) -> f64 { self.carrier_phase.arg() }
+	pub fn code_phase_samples(&self) -> f64 { self.code_phase }
 
 	pub fn initialize(&mut self, acq_freq_hz:f64) {
 

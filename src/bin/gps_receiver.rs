@@ -11,11 +11,8 @@ use std::collections::VecDeque;
 use clap::{Arg, App};
 use colored::*;
 use rust_radio::io;
-use rust_radio::utils::kinematics;
-use rust_radio::gnss::{channel, pvt, telemetry_decode};
+use rust_radio::gnss::{channel, telemetry_decode};
 use serde::{Serialize, Deserialize};
-
-use na::base::{DMatrix, Matrix3x1, U3, U1};
 
 type SF = telemetry_decode::gps::l1_ca_subframe::Subframe;
 type SF4 = telemetry_decode::gps::l1_ca_subframe::Subframe4;
@@ -27,21 +24,13 @@ const NUM_ITERATIONS:usize = 50;
 const NUM_ACTIVE_CHANNELS:usize = 7;
 
 #[derive(Debug, Serialize, Deserialize)]
-struct PositionWithMetadata {
-	position: pvt::SatellitePosition,
+struct GnssSynchro {
 	prn: usize,
-	receiver_code_phase: usize,
-	carrier_freq_hz: f64,
-	cn0_snv_db_hz: f64,
-	carrier_lock_test: f64,
-	delay_iono: f64,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct Result {
-	all_sv_positions: Vec<PositionWithMetadata>,
-	obs_ecef:(f64, f64, f64),
-	obs_time_at_zero_code_phase:f64,
+	prompt_i:f64, 
+	carrier_doppler_hz:f64,
+	carrier_phase_rad:f64, 
+	code_phase_samples:f64, 
+	sample_idx:usize
 }
 
 fn main() {
@@ -71,8 +60,7 @@ fn main() {
 	let mut inactive_channels:VecDeque<channel::Channel> = (1..=32).map(|prn| channel::new_channel(prn, fs, 0.0, 0.01)).collect();
 	let mut active_channels:VecDeque<channel::Channel>   = inactive_channels.drain(..NUM_ACTIVE_CHANNELS).collect();
 
-	let mut all_results:Vec<PositionWithMetadata> = Vec::new();
-	let mut ionosphere:Option<pvt::IonosphericModel> = None;
+	let mut all_results:Vec<GnssSynchro> = Vec::new();
 
 	for s in io::file_source_i16_complex(&fname) {
 
@@ -81,36 +69,10 @@ fn main() {
 				channel::ChannelResult::Acquisition{ doppler_hz, test_stat } => {
 					eprintln!("{}", format!("PRN {}: Acquired at {} [Hz] doppler, {} test statistic, attempting to track", chn.prn, doppler_hz, test_stat).green());
 				},
-				channel::ChannelResult::Ok(_, sf, start_idx) => {
-					// Print subframe to STDERR
-					let subframe_str = format!("{:?}", &sf).blue();
-					eprintln!("Subframe: {}", subframe_str);
-
-					match sf {
-						SF::Subframe4{common:_, data_id:_, sv_id:_, page:SF4::Page18{ alpha0, alpha1, alpha2, alpha3, beta0, beta1, beta2, beta3, 
-							a1:_, a0:_, t_ot:_, wn_t:_, delta_t_LS:_, wn_LSF:_, delta_t_LSF:_ }} => {
-								ionosphere = Some(pvt::IonosphericModel{alpha0, alpha1, alpha2, alpha3, beta0, beta1, beta2, beta3})
-							},
-						_ => {}
-					}
-
-					if let Some(prev_sf) = chn.second_most_recent_subframe() {
-						// Note IS-GPS-200H, para. 20.3.3.2 says that the TOW in a subframe is the time for the following subframe, not the current one
-						eprint!("PRN {}, ", chn.prn);
-						if let Some(ecef) = chn.ecef_position(prev_sf.time_of_week()) {
-							let pos_with_metadata = PositionWithMetadata{
-								position: ecef,
-								prn: chn.prn,
-								receiver_code_phase: start_idx,				// Previous subframe time-of-week goes with current subframe start index
-								carrier_freq_hz: chn.carrier_freq_hz(),
-								cn0_snv_db_hz: chn.last_cn0_snv_db_hz(),
-								carrier_lock_test: chn.last_carrier_lock_test(),
-								delay_iono: 0.0,
-							};
-							all_results.push(pos_with_metadata);
-						}
-					}
-
+				channel::ChannelResult::Ok{sf, prompt_i, carrier_doppler_hz, carrier_phase_rad, code_phase_samples, sample_idx} => {
+					let gnss_synchro = GnssSynchro { prn: chn.prn, prompt_i, carrier_doppler_hz, carrier_phase_rad, code_phase_samples, sample_idx };
+					eprintln!("{:?}", gnss_synchro);
+					all_results.push(gnss_synchro);
 				},
 				channel::ChannelResult::Err(e) => eprintln!("{}", format!("PRN {}: Error due to {:?}", chn.prn, e).red()),
 				_ => {}
@@ -138,66 +100,6 @@ fn main() {
 
 	}
 
-	// Position fix
-	if all_results.len() >= 4 {
-		let a:f64 = kinematics::WGS84_SEMI_MAJOR_AXIS_METERS;
-		let b:f64 = kinematics::WGS84_SEMI_MINOR_AXIS_METERS;
-		let mut x_hat = Matrix3x1::from_row_slice_generic(U3, U1, &[0.0, 0.0, all_results[0].position.gps_system_time]);
-		let dt_s:f64 = 1.0 / fs;
-
-		let mut jacobian = DMatrix::from_element(all_results.len(), 3, 0.0);
-
-		for _ in 0..NUM_ITERATIONS {
-			let mut f_vec    = DMatrix::from_element(all_results.len(), 1, 0.0);
-			for i in 0..all_results.len() {
-				// Calculate the Jacobian matrix
-				let (x,y,z) = all_results[i].position.sv_ecef_position;
-				let t:f64 = all_results[i].position.gps_system_time;
-				let phi_c:f64 = all_results[i].receiver_code_phase as f64;
-
-				let phi:f64 = x_hat[(0,0)];
-				let lam:f64 = x_hat[(1,0)];
-
-				let et:f64 = t - x_hat[(2,0)] - dt_s*phi_c;
-				let ex:f64 = x - a*lam.cos()*phi.cos();
-				let ey:f64 = y - a*lam.sin()*phi.cos();
-				let ez:f64 = z - b*phi.sin();
-
-				// d_residual / d_phi
-				jacobian[(i, 0)] = -2.0*ex*(a*lam.cos()*phi.sin()) + 2.0*ey*(a*lam.sin()*phi.sin()) + 2.0*ez*(b*phi.cos());
-
-				// d_residual / d_lam
-				jacobian[(i, 1)] = -2.0*ex*(a*lam.sin()*phi.cos()) + 2.0*ey*(a*lam.cos()*phi.cos());
-
-				// d_residual / d_time
-				jacobian[(i, 2)] = -2.0 * et * C.powi(2);
-
-				// Calculate f vector, representing the error for each row
-				f_vec[(i, 0)] = (et.powi(2)*C.powi(2)) - ex.powi(2) - ey.powi(2) - ez.powi(2);
-			}
-
-			// Calculate the pseudoinverse of the Jacobian
-			let pseudoinverse = (jacobian.tr_mul(&jacobian)).try_inverse().unwrap();
-
-			x_hat = x_hat.clone_owned() - (pseudoinverse * jacobian.transpose() * f_vec);
-			x_hat[(0,0)] = (x_hat[(0,0)]).sin().atan2((x_hat[(0,0)]).cos());
-			x_hat[(1,0)] = (x_hat[(1,0)]).sin().atan2((x_hat[(1,0)]).cos());
-			eprintln!("phi={:.4} [deg], lam={:.4} [deg], t0={} [sec]", x_hat[(0,0)]*57.3, x_hat[(1,0)]*57.3, x_hat[(2,0)]);
-		}
-
-		// This is the only output to STDOUT.  This allows you to pipe the results to a JSON file, but still see the status updates through STDERR as the code runs.
-		let phi:f64 = x_hat[(0,0)];
-		let lam:f64 = x_hat[(1,0)];
-		let obs_ecef = (a*lam.cos()*phi.cos(), a*lam.sin()*phi.cos(), b*phi.sin());
-		if let Some(iono) = ionosphere {
-			for result in &mut all_results {
-				result.delay_iono = iono.delay(obs_ecef, result.position.sv_ecef_position, result.position.gps_system_time);
-			}			
-		}
-
-		let result = Result{ all_sv_positions: all_results, obs_ecef, obs_time_at_zero_code_phase:x_hat[(2,0)] };
-		println!("{}", serde_json::to_string_pretty(&result).unwrap());
-
-	}
+	println!("{}", serde_json::to_string_pretty(&all_results).unwrap());
 
 }

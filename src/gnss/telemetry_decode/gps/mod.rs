@@ -115,30 +115,31 @@ impl TelemetryDecoder {
 
 				if self.detection_buffer.len() >= SUBFRAME_SIZE_W_PARITY_BITS {
 					let mut next_subframe = [false; SUBFRAME_SIZE_W_PARITY_BITS];
-					match self.detection_buffer.pop_front() {
-						Some((b, first_idx)) => {
-							next_subframe[0] = b ^ is_inverse_sense;
-							for i in 1..SUBFRAME_SIZE_W_PARITY_BITS {
-								match self.detection_buffer.pop_front() {
-									Some((b, _)) => next_subframe[i] = b ^ is_inverse_sense,
-									None => return TelemetryDecoderResult::Err(DigSigProcErr::InvalidTelemetryData("Not enough bits in detection_buffer")),
-								}
-							}
-							match data_recover(next_subframe) {
-								Ok(bits) => {
-									match l1_ca_subframe::decode(bits, first_idx) {
-										Ok(sf) => TelemetryDecoderResult::Ok(sf, bits, first_idx),
-										Err(e) => TelemetryDecoderResult::Err(e)		
-									}
-								},
-								Err(e) => TelemetryDecoderResult::Err(e)
+					let last_idx:usize = match self.detection_buffer.get(SUBFRAME_SIZE_W_PARITY_BITS-1) {
+						Some((_, idx)) => *idx,
+						None => panic!("Thought we had enough bits in the buffer, but didn't")
+					};
+
+					// Unload the detection buffer
+					for i in 0..SUBFRAME_SIZE_W_PARITY_BITS {
+						match self.detection_buffer.pop_front() {
+							Some((b, _)) => next_subframe[i] = b ^ is_inverse_sense,
+							None => return TelemetryDecoderResult::Err(DigSigProcErr::InvalidTelemetryData("Not enough bits in detection_buffer")),
+						}
+					}
+
+					// Parity-check the whole subframe and return the actual data without the parity bits
+					match data_recover(next_subframe) {
+						Ok(bits) => {
+							// If the bits passed the parity check, try to actually decode the data
+							match l1_ca_subframe::decode(bits) {
+								Ok(sf) => TelemetryDecoderResult::Ok(sf, bits, last_idx),
+								Err(e) => TelemetryDecoderResult::Err(e)		
 							}
 						},
-						None => {
-							TelemetryDecoderResult::Err(DigSigProcErr::InvalidTelemetryData("Not enough bits in detection_buffer"))
-						}
-
+						Err(e) => TelemetryDecoderResult::Err(e)
 					}
+
 				} else { TelemetryDecoderResult::NotReady }
 
 			},

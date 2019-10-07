@@ -9,8 +9,7 @@ use ::utils;
 #[derive(Debug, Serialize, Deserialize, Copy, Clone)]
 pub struct CommonFields {
 	pub time_of_week_truncated:u32,
-	pub subframe_id:u8,
-	pub start_sample_idx:usize,
+	pub subframe_id:u8
 }
 
 #[derive(Debug, Serialize, Deserialize, Copy, Clone)]
@@ -58,10 +57,10 @@ impl Subframe {
 
 }
 
-pub fn decode(bits:[bool; 240], start_sample_idx:usize) -> Result<Subframe, DigSigProcErr> {
+pub fn decode(bits:[bool; 240]) -> Result<Subframe, DigSigProcErr> {
 	let time_of_week_truncated:u32 = utils::bool_slice_to_u32(&bits[24..41]);
 	let subframe_id:u8 = utils::bool_slice_to_u8(&bits[43..46]);
-	let common = CommonFields{ time_of_week_truncated, subframe_id, start_sample_idx };
+	let common = CommonFields{ time_of_week_truncated, subframe_id };
 
 	match subframe_id {
 		1 => {

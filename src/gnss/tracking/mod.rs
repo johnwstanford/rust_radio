@@ -176,9 +176,9 @@ impl Tracking {
 						TrackingResult::Err(DigSigProcErr::LossOfLock) 
 					} else {
 						// We have enough prompts to build a bit
-						let first_idx:usize = self.prompt_buffer[0].1;
+						let last_idx:usize = self.prompt_buffer.back().unwrap().1;
 						let this_bit_re:f64 = self.prompt_buffer.drain(..20).map(|(c, _)| c.re).fold(0.0, |a,b| a+b);
-						TrackingResult::Ok{ prompt_i:this_bit_re, bit_idx: first_idx} 
+						TrackingResult::Ok{ prompt_i:this_bit_re, bit_idx: last_idx} 
 					}
 				} else { TrackingResult::NotReady }
 

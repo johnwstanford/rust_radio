@@ -64,16 +64,16 @@ impl Tracking {
 	fn next_prn_length(&self) -> usize { ((1023.0 / self.code_dphase) - self.code_phase).floor() as usize }
 
 	/// Checks to see if the buffer currently contains enough samples to produce the next symbol.  If so, returns Some with a tuple
-	/// containing the complex samples and the index of the first one.  If not, returns None.
+	/// containing the complex samples and the index of the last one.  If not, returns None.
 	fn next_prn(&mut self) -> Option<(Vec<Complex<f64>>, usize)> {
 		let next_len:usize = self.next_prn_length();
 		if self.sample_buffer.len() >= next_len {
 			// We have enough samples to produce the next PRN
 			let this_prn:Vec<Complex<f64>> = self.sample_buffer.iter().map(|(c,_)| *c).collect();
-			let (_, first_idx) = self.sample_buffer[0];
+			let (_, last_idx) = self.sample_buffer.pop().unwrap();
 			self.sample_buffer.clear();
 
-			Some((this_prn, first_idx)) 
+			Some((this_prn, last_idx)) 
 		} else {
 			// Not enough samples in the buffer to produce the next PRN
 			None

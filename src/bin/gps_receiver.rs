@@ -11,31 +11,25 @@ use std::collections::VecDeque;
 use clap::{Arg, App};
 use colored::*;
 use rust_radio::io;
-use rust_radio::gnss::{channel, telemetry_decode};
+use rust_radio::gnss::channel;
 use serde::{Serialize, Deserialize};
 
-type SF = telemetry_decode::gps::l1_ca_subframe::Subframe;
-type SF4 = telemetry_decode::gps::l1_ca_subframe::Subframe4;
-
-const C:f64 = 2.99792458e8;					 // [m/s] speed of light
+//const C:f64 = 2.99792458e8;					 // [m/s] speed of light
 
 // TODO: make these configurable
-const NUM_ITERATIONS:usize = 50;
 const NUM_ACTIVE_CHANNELS:usize = 7;
 
 #[derive(Debug, Serialize, Deserialize)]
 struct GnssSynchro {
 	prn: usize,
-	prompt_i:f64, 
-	carrier_doppler_hz:f64,
-	carrier_phase_rad:f64, 
-	code_phase_samples:f64, 
-	sample_idx:usize
+	sample_idx:usize,
+	ecef_position:(f64, f64, f64),
+	tow_sec:f64,
 }
 
 fn main() {
 
-	let matches = App::new("GPS L1 C/A Subframe Decode")
+	let matches = App::new("GPS L1 C/A GPS Receiver")
 		.version("0.1.0")
 		.author("John Stanford (johnwstanford@gmail.com)")
 		.about("Takes IQ samples centered on 1575.42 MHz and produces a GPS fix")
@@ -69,9 +63,13 @@ fn main() {
 				channel::ChannelResult::Acquisition{ doppler_hz, test_stat } => {
 					eprintln!("{}", format!("PRN {}: Acquired at {} [Hz] doppler, {} test statistic, attempting to track", chn.prn, doppler_hz, test_stat).green());
 				},
-				channel::ChannelResult::Ok{sf, prompt_i, carrier_doppler_hz, carrier_phase_rad, code_phase_samples, sample_idx} => {
-					let gnss_synchro = GnssSynchro { prn: chn.prn, prompt_i, carrier_doppler_hz, carrier_phase_rad, code_phase_samples, sample_idx };
-					eprintln!("{:?}", gnss_synchro);
+				channel::ChannelResult::Ok{sf, prompt_i:_, carrier_doppler_hz:_, carrier_phase_rad:_, code_phase_samples:_, 
+					sample_idx, opt_tow_sec:Some(tow_sec), ecef_position:Some((x, y, z))} => {
+					let gnss_synchro = GnssSynchro { prn: chn.prn, sample_idx, tow_sec, ecef_position:(x,y,z) };
+					eprintln!("PRN {:02}: sample {}, [{:9.2e}, {:9.2e}, {:9.2e}], {:.5}", chn.prn, sample_idx, x, y, z, tow_sec);
+					if let Some(new_sf) = sf {
+						eprintln!("New Subframe: {}", format!("{:?}", new_sf).blue());
+					}
 					all_results.push(gnss_synchro);
 				},
 				channel::ChannelResult::Err(e) => eprintln!("{}", format!("PRN {}: Error due to {:?}", chn.prn, e).red()),
@@ -100,6 +98,7 @@ fn main() {
 
 	}
 
+	// Output data in JSON format for rapid-prototyping positioning
 	println!("{}", serde_json::to_string_pretty(&all_results).unwrap());
 
 }

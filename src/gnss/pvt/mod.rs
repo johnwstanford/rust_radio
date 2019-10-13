@@ -14,13 +14,6 @@ pub const F:f64 = -4.442807633e-10;				 // [sec/root-meter]
 
 use std::f64::consts;
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct SatellitePosition {
-	pub sv_ecef_position:(f64, f64, f64),
-	pub gps_system_time:f64,
-	pub tk:f64,
-}
-
 #[derive(Debug)]
 pub struct IonosphericModel {
 	pub alpha0:f64, pub alpha1:f64, pub alpha2:f64, pub alpha3:f64, 
@@ -121,10 +114,10 @@ pub struct CalendarAndEphemeris {
 
 impl CalendarAndEphemeris {
 
-	pub fn pos_ecef(&self, t_sv:f64) -> SatellitePosition {
-		let dt_sv:f64 = self.a_f0 + self.a_f1*(t_sv - self.t_oc) + self.a_f2*(t_sv - self.t_oc).powi(2);
-		let t:f64 = t_sv - dt_sv;
+	// Correction factor between the SV clock and GPS system time
+	pub fn dt_sv(&self, t:f64) -> f64 { self.a_f0 + self.a_f1*(t - self.t_oc) + self.a_f2*(t - self.t_oc).powi(2) }
 
+	pub fn pos_ecef(&self, t:f64) -> (f64, f64, f64) {
 		// Note: this is the time without the relativistic correction because we need the eccentric anomaly, which
 		// we haven't calculated yet, but this is a good approximation.  Also, we should use t in these equations instead
 		// of t_sv but for this purpose, t_sv is a good approximation to t.  The GPS ICD also mentions this issue and
@@ -205,12 +198,13 @@ impl CalendarAndEphemeris {
 	    let z_k:f64 = y_kp * (i_k.sin());
 
 	    // Relativistic correction to transmission time
-		let dt_r:f64 = F * self.e * self.sqrt_a * ek.sin();
+		// let dt_r:f64 = F * self.e * self.sqrt_a * ek.sin();
+		//eprintln!("dt_sv: {} [sec], dt_r: {} [sec]", dt_sv, dt_r);
 
 	    //eprintln!("tk={:.8e}, i_k={:.8e}, x_kp={:.8e}, y_kp={:.8e}, omega_k={:.8e}, x_k={:.8e}, y_k={:.8e}, z_k={:.8e}, dt_r={:.8e}", 
 	    //	&tk, &i_k, &x_kp, &y_kp, &omega_k, &x_k, &y_k, &z_k, dt_r);
 
-		SatellitePosition{ sv_ecef_position:(x_k, y_k, z_k), gps_system_time:t+dt_r, tk }
+		(x_k, y_k, z_k)
 
 	} 
 

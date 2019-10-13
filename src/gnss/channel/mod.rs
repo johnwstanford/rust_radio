@@ -31,8 +31,8 @@ pub enum ChannelState {
 pub enum ChannelResult {
 	NotReady(&'static str),
 	Acquisition{ doppler_hz:i16, test_stat:f64 },
-	Ok{sf:Option<SF>, prompt_i:f64, carrier_doppler_hz:f64,
-		carrier_phase_rad:f64, code_phase_samples:f64, sample_idx:usize},
+	Ok{sf:Option<SF>, prompt_i:f64, carrier_doppler_hz:f64, carrier_phase_rad:f64, code_phase_samples:f64, 
+		sample_idx:usize, opt_tow_sec:Option<f64>, ecef_position:Option<(f64, f64, f64)> },
 	Err(DigSigProcErr),
 }
 
@@ -48,6 +48,7 @@ pub struct Channel {
 	last_sample_idx:usize,
 	sf_buffer:VecDeque<SF>,
 	calendar_and_ephemeris:Option<pvt::CalendarAndEphemeris>,
+	opt_tow_sec:Option<f64>,
 }
 
 impl Channel {
@@ -95,9 +96,15 @@ impl Channel {
 				match self.trk.apply(s) {
 					tracking::TrackingResult::Ok{prompt_i, bit_idx} => {
 						// The tracker has a lock and produced a bit, so pass it into the telemetry decoder and match on the result
+						if let Some(tow_sec) = &mut self.opt_tow_sec {
+							*tow_sec += 0.02;
+						}
+
 						let sf:Option<SF> = match self.tlm.apply((prompt_i > 0.0, bit_idx)) {
 							telemetry_decode::gps::TelemetryDecoderResult::Ok(sf, _, _) => {
 		
+								self.opt_tow_sec = Some(sf.time_of_week());
+
 								// Populate the subframe buffer
 								self.sf_buffer.push_back(sf);
 								while self.sf_buffer.len() > 3 {
@@ -116,10 +123,21 @@ impl Channel {
 							}
 						};
 
-						ChannelResult::Ok{sf, prompt_i, carrier_doppler_hz:self.trk.carrier_freq_hz(),
-							carrier_phase_rad:self.trk.carrier_phase_rad(), 
-							code_phase_samples:self.trk.code_phase_samples(), 
-							sample_idx:bit_idx }					
+						match (self.opt_tow_sec, self.calendar_and_ephemeris) {
+							(Some(tow_sec), Some(cae)) => {			
+								ChannelResult::Ok{sf, prompt_i, carrier_doppler_hz:self.trk.carrier_freq_hz(),
+									carrier_phase_rad:self.trk.carrier_phase_rad(), 
+									code_phase_samples:self.trk.code_phase_samples(), 
+									sample_idx:bit_idx, opt_tow_sec:Some(tow_sec-cae.dt_sv(tow_sec)), ecef_position:Some(cae.pos_ecef(tow_sec)) }
+							},				
+							(_, _) => 						
+								ChannelResult::Ok{sf, prompt_i, carrier_doppler_hz:self.trk.carrier_freq_hz(),
+								carrier_phase_rad:self.trk.carrier_phase_rad(), 
+								code_phase_samples:self.trk.code_phase_samples(), 
+								sample_idx:bit_idx, opt_tow_sec:None, ecef_position:None }					
+
+						}
+
 					},
 					tracking::TrackingResult::NotReady => ChannelResult::NotReady("Waiting on next bit from tracker"),
 					tracking::TrackingResult::Err(e) => {
@@ -135,7 +153,7 @@ impl Channel {
 	pub fn second_most_recent_subframe(&self) -> Option<&SF> { 	// TODO: consider reversing sf_buffer to make this easier if it doesn't impact anything else
 		if self.sf_buffer.len() >= 2 { self.sf_buffer.get(self.sf_buffer.len()-2) } else { None }
 	}
-	pub fn ecef_position(&self, t_sv:f64) -> Option<pvt::SatellitePosition> { match &self.calendar_and_ephemeris {
+	pub fn ecef_position(&self, t_sv:f64) -> Option<(f64, f64, f64)> { match &self.calendar_and_ephemeris {
 		Some(cae) => Some(cae.pos_ecef(t_sv)),
 		None => None,
 	}}
@@ -173,5 +191,5 @@ pub fn new_channel(prn:usize, fs:f64, acq_freq:f64, test_stat:f64) -> Channel {
 	let tlm = telemetry_decode::gps::TelemetryDecoder::new();
 
 	Channel{ prn, fs, state, acq, trk, tlm, last_acq_doppler:0, last_acq_test_stat: 0.0, last_sample_idx: 0, 
-		sf_buffer: VecDeque::new(), calendar_and_ephemeris: None }
+		sf_buffer: VecDeque::new(), calendar_and_ephemeris: None, opt_tow_sec: None }
 }

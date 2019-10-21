@@ -132,7 +132,7 @@ fn main() {
 									.filter(|cae| ((cae.t_oe * 1000.0) - tow_ms).abs() <= 7200000.0 ).map(|cae| *cae).collect();
 								if ephs_within_two_hours.len() > 0 {
 									for cae in ephs_within_two_hours {
-										println!("{:?}", cae.pos_ecef(tow_ms / 1000.0));
+										println!("{:?}", cae.pos_and_clock(tow_ms / 1000.0).0);
 									}
 								} else {
 									println!("No ephemeris data with two hours for PRN {} during week {}", prn, week);

@@ -117,7 +117,7 @@ impl CalendarAndEphemeris {
 	// Correction factor between the SV clock and GPS system time
 	pub fn dt_sv(&self, t:f64) -> f64 { self.a_f0 + self.a_f1*(t - self.t_oc) + self.a_f2*(t - self.t_oc).powi(2) }
 
-	pub fn pos_ecef(&self, t:f64) -> (f64, f64, f64) {
+	pub fn pos_and_clock(&self, t:f64) -> ((f64, f64, f64), f64) {
 		// Note: this is the time without the relativistic correction because we need the eccentric anomaly, which
 		// we haven't calculated yet, but this is a good approximation.  Also, we should use t in these equations instead
 		// of t_sv but for this purpose, t_sv is a good approximation to t.  The GPS ICD also mentions this issue and
@@ -198,13 +198,9 @@ impl CalendarAndEphemeris {
 	    let z_k:f64 = y_kp * (i_k.sin());
 
 	    // Relativistic correction to transmission time
-		// let dt_r:f64 = F * self.e * self.sqrt_a * ek.sin();
-		//eprintln!("dt_sv: {} [sec], dt_r: {} [sec]", dt_sv, dt_r);
-
-	    //eprintln!("tk={:.8e}, i_k={:.8e}, x_kp={:.8e}, y_kp={:.8e}, omega_k={:.8e}, x_k={:.8e}, y_k={:.8e}, z_k={:.8e}, dt_r={:.8e}", 
-	    //	&tk, &i_k, &x_kp, &y_kp, &omega_k, &x_k, &y_k, &z_k, dt_r);
-
-		(x_k, y_k, z_k)
+		let dt_r:f64 = F * self.e * self.sqrt_a * ek.sin();
+		
+		((x_k, y_k, z_k), self.a_f0 + (self.a_f1 * tk) + (self.a_f2 * tk.powi(2)) + dt_r)
 
 	} 
 

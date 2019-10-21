@@ -12,20 +12,9 @@ use clap::{Arg, App};
 use colored::*;
 use rust_radio::io;
 use rust_radio::gnss::channel;
-use serde::{Serialize, Deserialize};
-
-//const C:f64 = 2.99792458e8;					 // [m/s] speed of light
 
 // TODO: make these configurable
 const NUM_ACTIVE_CHANNELS:usize = 7;
-
-#[derive(Debug, Serialize, Deserialize)]
-struct GnssSynchro {
-	prn: usize,
-	sample_idx:usize,
-	ecef_position:(f64, f64, f64),
-	tow_sec:f64,
-}
 
 fn main() {
 
@@ -48,31 +37,41 @@ fn main() {
 
 	let fname:&str = matches.value_of("filename").unwrap();
 	let fs = matches.value_of("sample_rate_sps").unwrap().parse().unwrap();
+	let mut opt_t0:Option<f64> = None;
 
 	eprintln!("Decoding {} at {} [samples/sec]", &fname, &fs);
 
 	let mut inactive_channels:VecDeque<channel::Channel> = (1..=32).map(|prn| channel::new_channel(prn, fs, 0.0, 0.01)).collect();
 	let mut active_channels:VecDeque<channel::Channel>   = inactive_channels.drain(..NUM_ACTIVE_CHANNELS).collect();
 
-	let mut all_results:Vec<GnssSynchro> = Vec::new();
+	let mut all_results:Vec<channel::ChannelObservation> = Vec::new();
+	let pvt_rate_samples:usize = (fs * 0.02) as usize;
 
 	for s in io::file_source_i16_complex(&fname) {
 
+		let current_rx_time:f64 = (s.1 as f64) / fs;
+		if let Some(ref mut t0) = opt_t0 {
+			*t0 += 1.0 / fs;
+		}
+
 		for chn in &mut active_channels {
+			if (s.1)%pvt_rate_samples == 0 {
+				let opt_co = chn.get_observation(current_rx_time - 0.1, opt_t0.unwrap_or(0.0) - 0.1);
+				//eprintln!("{:.2} [sec], {} [samples]: PRN {} {:?}", current_rx_time, s.1, chn.prn, &opt_co);						
+				if let Some(co) = opt_co {
+					all_results.push(co);
+				}
+			}
+
 			match chn.apply(s) {
-				channel::ChannelResult::Acquisition{ doppler_hz, test_stat } => {
-					eprintln!("{}", format!("PRN {}: Acquired at {} [Hz] doppler, {} test statistic, attempting to track", chn.prn, doppler_hz, test_stat).green());
+				channel::ChannelResult::Acquisition{ doppler_hz, test_stat } =>
+					eprintln!("{}", format!("PRN {}: Acquired at {} [Hz] doppler, {} test statistic, attempting to track", chn.prn, doppler_hz, test_stat).green()),
+				channel::ChannelResult::Ok{sf:Some(new_sf)} => {
+					opt_t0.get_or_insert(new_sf.time_of_week() + 0.086);
+					eprintln!("New Subframe: {}", format!("{:?}", new_sf).blue());
 				},
-				channel::ChannelResult::Ok{sf, prompt_i:_, carrier_doppler_hz:_, carrier_phase_rad:_, code_phase_samples:_, 
-					sample_idx, opt_tow_sec:Some(tow_sec), ecef_position:Some((x, y, z))} => {
-					let gnss_synchro = GnssSynchro { prn: chn.prn, sample_idx, tow_sec, ecef_position:(x,y,z) };
-					eprintln!("PRN {:02}: sample {}, [{:9.2e}, {:9.2e}, {:9.2e}], {:.5}", chn.prn, sample_idx, x, y, z, tow_sec);
-					if let Some(new_sf) = sf {
-						eprintln!("New Subframe: {}", format!("{:?}", new_sf).blue());
-					}
-					all_results.push(gnss_synchro);
-				},
-				channel::ChannelResult::Err(e) => eprintln!("{}", format!("PRN {}: Error due to {:?}", chn.prn, e).red()),
+				channel::ChannelResult::Err(e) => 
+					eprintln!("{}", format!("PRN {}: Error due to {:?}", chn.prn, e).red()),
 				_ => {}
 			}
 		}
@@ -84,7 +83,7 @@ fn main() {
 				if this_channel.state() == channel::ChannelState::Acquisition {
 					// Move this channel to inactive and replace it
 					let replacement_channel = inactive_channels.pop_front().unwrap();
-					eprintln!("{:.1} [sec]: Putting PRN {} in the inactive buffer, replacing with PRN {}", (s.1 as f64)/fs, this_channel.prn, replacement_channel.prn);
+					eprintln!("{:.1} [sec]: Putting PRN {} in the inactive buffer, replacing with PRN {}", current_rx_time, this_channel.prn, replacement_channel.prn);
 					inactive_channels.push_back(this_channel);
 					active_channels.push_back(replacement_channel);
 				} else {

@@ -1,9 +1,13 @@
 
+extern crate itertools;
 extern crate rustfft;
+extern crate serde;
 
 use std::collections::VecDeque;
 
 use self::rustfft::num_complex::Complex;
+use self::itertools::Itertools;
+use self::serde::{Serialize, Deserialize};
 
 use ::DigSigProcErr;
 use ::gnss::{acquisition, tracking, telemetry_decode};
@@ -16,6 +20,10 @@ pub const DEFAULT_DLL_BW_HZ:f64 = 4.0;
 pub const DEFAULT_DOPPLER_STEP_HZ:usize = 50;
 pub const DEFAULT_DOPPLER_MAX_HZ:i16 = 10000;
 pub const DEFAULT_TEST_STAT_THRESHOLD:f64 = 0.01;
+pub const C_METERS_PER_SEC:f64 = 2.99792458e8;    // [m/s] speed of light
+pub const C_METERS_PER_MS:f64  = 2.99792458e5;    // [m/ms] speed of light
+
+const SYNCHRO_BUFFER_SIZE:usize = 100;
 
 type Sample = (Complex<f64>, usize);
 type SF = l1_ca_subframe::Subframe;
@@ -31,9 +39,23 @@ pub enum ChannelState {
 pub enum ChannelResult {
 	NotReady(&'static str),
 	Acquisition{ doppler_hz:i16, test_stat:f64 },
-	Ok{sf:Option<SF>, prompt_i:f64, carrier_doppler_hz:f64, carrier_phase_rad:f64, code_phase_samples:f64, 
-		sample_idx:usize, opt_tow_sec:Option<f64>, ecef_position:Option<(f64, f64, f64)> },
+	Ok{sf:Option<SF>},
 	Err(DigSigProcErr),
+}
+
+struct ChannelSynchro {
+	rx_time: f64,
+	tow_at_current_symbol_ms: f64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ChannelObservation {
+	rx_time: f64,
+	interp_tow_ms: f64,
+	pseudorange_m: f64,
+	pos_ecef: (f64, f64, f64),
+	sv_clock: f64,
+	t_gd: f64,
 }
 
 pub struct Channel {
@@ -47,6 +69,7 @@ pub struct Channel {
 	last_acq_test_stat:f64,
 	last_sample_idx:usize,
 	sf_buffer:VecDeque<SF>,
+	synchro_buffer:VecDeque<ChannelSynchro>,
 	calendar_and_ephemeris:Option<pvt::CalendarAndEphemeris>,
 	opt_tow_sec:Option<f64>,
 }
@@ -100,6 +123,7 @@ impl Channel {
 							*tow_sec += 0.02;
 						}
 
+						// See if a new subframe is available
 						let sf:Option<SF> = match self.tlm.apply((prompt_i > 0.0, bit_idx)) {
 							telemetry_decode::gps::TelemetryDecoderResult::Ok(sf, _, _) => {
 		
@@ -123,20 +147,17 @@ impl Channel {
 							}
 						};
 
-						match (self.opt_tow_sec, self.calendar_and_ephemeris) {
-							(Some(tow_sec), Some(cae)) => {			
-								ChannelResult::Ok{sf, prompt_i, carrier_doppler_hz:self.trk.carrier_freq_hz(),
-									carrier_phase_rad:self.trk.carrier_phase_rad(), 
-									code_phase_samples:self.trk.code_phase_samples(), 
-									sample_idx:bit_idx, opt_tow_sec:Some(tow_sec-cae.dt_sv(tow_sec)), ecef_position:Some(cae.pos_ecef(tow_sec)) }
-							},				
-							(_, _) => 						
-								ChannelResult::Ok{sf, prompt_i, carrier_doppler_hz:self.trk.carrier_freq_hz(),
-								carrier_phase_rad:self.trk.carrier_phase_rad(), 
-								code_phase_samples:self.trk.code_phase_samples(), 
-								sample_idx:bit_idx, opt_tow_sec:None, ecef_position:None }					
-
+						// Populate the synchro buffer
+						if let Some(tow_sec) = self.opt_tow_sec {
+							let this_synchro = ChannelSynchro{ rx_time: (bit_idx as f64 + self.trk.code_phase_samples())/self.fs,
+								tow_at_current_symbol_ms: tow_sec*1000.0 };
+							self.synchro_buffer.push_back(this_synchro);
+							while self.synchro_buffer.len() > SYNCHRO_BUFFER_SIZE {
+								self.synchro_buffer.pop_front();
+							}
 						}
+
+						ChannelResult::Ok{sf}
 
 					},
 					tracking::TrackingResult::NotReady => ChannelResult::NotReady("Waiting on next bit from tracker"),
@@ -149,14 +170,20 @@ impl Channel {
 		}
 	}
 
-	pub fn most_recent_subframe(&self) -> Option<&SF> { self.sf_buffer.back() }
-	pub fn second_most_recent_subframe(&self) -> Option<&SF> { 	// TODO: consider reversing sf_buffer to make this easier if it doesn't impact anything else
-		if self.sf_buffer.len() >= 2 { self.sf_buffer.get(self.sf_buffer.len()-2) } else { None }
+	pub fn get_observation(&self, rx_time:f64, rx_tow_sec:f64) -> Option<ChannelObservation> {
+		let interp:Option<f64> = self.synchro_buffer.iter().tuple_windows().find(|(a,b)| a.rx_time <= rx_time && b.rx_time >= rx_time).map(|(a,b)| {
+			let time_factor:f64 = (rx_time - a.rx_time) / (b.rx_time - a.rx_time);
+			a.tow_at_current_symbol_ms + ((b.tow_at_current_symbol_ms - a.tow_at_current_symbol_ms) * time_factor)
+		});
+
+		//eprintln!("interp_tow={} cae={}", interp.is_some(), self.calendar_and_ephemeris.is_some());
+		if let (Some(interp_tow_ms), Some(cae)) = (interp, self.calendar_and_ephemeris) {
+			let interp_tow_sec = interp_tow_ms / 1000.0;
+			let pseudorange_m:f64 = (rx_tow_sec - interp_tow_sec) * C_METERS_PER_SEC;
+			let (pos_ecef, sv_clock) = cae.pos_and_clock(interp_tow_sec);
+			Some(ChannelObservation{ rx_time, interp_tow_ms, pseudorange_m, pos_ecef, sv_clock, t_gd: cae.t_gd })
+		} else { None}
 	}
-	pub fn ecef_position(&self, t_sv:f64) -> Option<(f64, f64, f64)> { match &self.calendar_and_ephemeris {
-		Some(cae) => Some(cae.pos_ecef(t_sv)),
-		None => None,
-	}}
 
 	fn check_calendar_and_ephemeris(&mut self) {
 		match (self.sf_buffer.get(0), self.sf_buffer.get(1), self.sf_buffer.get(2)) {
@@ -191,5 +218,5 @@ pub fn new_channel(prn:usize, fs:f64, acq_freq:f64, test_stat:f64) -> Channel {
 	let tlm = telemetry_decode::gps::TelemetryDecoder::new();
 
 	Channel{ prn, fs, state, acq, trk, tlm, last_acq_doppler:0, last_acq_test_stat: 0.0, last_sample_idx: 0, 
-		sf_buffer: VecDeque::new(), calendar_and_ephemeris: None, opt_tow_sec: None }
+		sf_buffer: VecDeque::new(), synchro_buffer: VecDeque::new(), calendar_and_ephemeris: None, opt_tow_sec: None }
 }

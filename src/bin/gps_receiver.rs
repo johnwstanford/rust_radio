@@ -7,7 +7,6 @@ extern crate serde;
 extern crate nalgebra as na;
 
 use std::collections::VecDeque;
-//use std::{thread, time};
 
 use clap::{Arg, App};
 use colored::*;
@@ -22,6 +21,7 @@ const NUM_ACTIVE_CHANNELS:usize = 7;
 const MAX_ITER:usize = 10;
 const SV_COUNT_THRESHOLD:usize = 5;
 const RESIDUAL_NORM_THRESHOLD_METERS:f64 = 200.0;
+const WEEK_SEC:f64 = 3600.0 * 24.0 * 7.0;
 
 #[derive(Debug, Serialize, Deserialize)]
 struct GnssFix {
@@ -52,7 +52,7 @@ fn main() {
 
 	let fname:&str = matches.value_of("filename").unwrap();
 	let fs = matches.value_of("sample_rate_sps").unwrap().parse().unwrap();
-	let mut opt_t0:Option<f64> = None;
+	let mut tow_rcv:f64 = 0.0;
 
 	eprintln!("Decoding {} at {} [samples/sec]", &fname, &fs);
 
@@ -67,14 +67,13 @@ fn main() {
 	for s in io::file_source_i16_complex(&fname) {
 
 		let current_rx_time:f64 = (s.1 as f64) / fs;
-		if let Some(ref mut t0) = opt_t0 {
-			*t0 += 1.0 / fs;
-		}
+		tow_rcv += 1.0 / fs;
+		if tow_rcv > WEEK_SEC { tow_rcv -= WEEK_SEC; }
 
 		let mut obs_this_soln:Vec<channel::ChannelObservation> = Vec::new();
 		for chn in &mut active_channels {
 			if (s.1)%pvt_rate_samples == 0 {
-				let opt_co = chn.get_observation(current_rx_time - 0.1, opt_t0.unwrap_or(0.0) - 0.1);
+				let opt_co = chn.get_observation(current_rx_time - 0.1, tow_rcv - 0.1);
 				if let Some(co) = opt_co {
 					obs_this_soln.push(co);
 				}
@@ -84,7 +83,7 @@ fn main() {
 				channel::ChannelResult::Acquisition{ doppler_hz, test_stat } =>
 					eprintln!("PRN {}: Acquired at {} [Hz] doppler, {} test statistic, attempting to track", chn.prn, doppler_hz, test_stat),
 				channel::ChannelResult::Ok{sf:Some(new_sf)} => {
-					opt_t0.get_or_insert(new_sf.time_of_week() + 0.086);
+					if (new_sf.time_of_week() - tow_rcv).abs() > 1.0 { tow_rcv = new_sf.time_of_week() + 0.086 }
 					eprintln!("New Subframe: {}", format!("{:?}", new_sf).cyan());
 				},
 				channel::ChannelResult::Err(e) => 
@@ -127,17 +126,19 @@ fn main() {
 					if dx.norm() < 1.0e-4 { 
 
 						// The iterative least squares method has converged
-						let fix = GnssFix{pos_ecef:(x[0], x[1], x[2]), residual_norm:v.norm(), sv_count:n, current_rx_time };
-						if fix.residual_norm.is_finite() && fix.pos_ecef.0.is_finite() && fix.pos_ecef.1.is_finite() && fix.pos_ecef.2.is_finite() && fix.residual_norm <= RESIDUAL_NORM_THRESHOLD_METERS {
-							let new_pos = kinematics::ecef_to_wgs84(x[0], x[1], x[2]);
-							eprintln!("{}", format!("Position Fix: {:.5} [deg] lat, {:.5} [deg] lon, {:.1} [m]", 
-								new_pos.latitude * 57.3, new_pos.longitude * 57.3, new_pos.height_above_ellipsoid).green().bold());
+						if x.iter().chain(v.iter()).all(|a| a.is_finite()) {
+							let fix = GnssFix{pos_ecef:(x[0], x[1], x[2]), residual_norm:v.norm(), sv_count:n, current_rx_time };
+							if fix.residual_norm <= RESIDUAL_NORM_THRESHOLD_METERS {
+								let new_pos = kinematics::ecef_to_wgs84(x[0], x[1], x[2]);
+								eprintln!("{}", format!("Position Fix: {:.5} [deg] lat, {:.5} [deg] lon, {:.1} [m]", 
+									new_pos.latitude * 57.3, new_pos.longitude * 57.3, new_pos.height_above_ellipsoid).green().bold());
 
-							// Commit this fix to the master fix
-							for i in 0..3 { x_master[i] = x[i]; }
-							if let Some(ref mut t0) = opt_t0 { *t0 -= x[3] / (kinematics::C); }
+								// Commit this fix to the master fix
+								for i in 0..3 { x_master[i] = x[i]; }
+								tow_rcv -= x[3] / (kinematics::C);
 
-							all_fixes.push(fix);
+								all_fixes.push(fix);								
+							}
 						}
 
 						// Whether we committed the fix or not, break out of the for loop						

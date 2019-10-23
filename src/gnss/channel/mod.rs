@@ -48,14 +48,14 @@ struct ChannelSynchro {
 	tow_at_current_symbol_ms: f64,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Copy, Clone)]
 pub struct ChannelObservation {
-	rx_time: f64,
-	interp_tow_ms: f64,
-	pseudorange_m: f64,
-	pos_ecef: (f64, f64, f64),
-	sv_clock: f64,
-	t_gd: f64,
+	pub rx_time: f64,
+	pub interp_tow_ms: f64,
+	pub pseudorange_m: f64,
+	pub pos_ecef: (f64, f64, f64),
+	pub sv_clock: f64,
+	pub t_gd: f64,
 }
 
 pub struct Channel {

@@ -33,6 +33,8 @@ pub struct Tracking {
 	pub threshold_cn0_snv_db_hz:f64,
 	last_cn0_snv_db_hz:f64,
 	last_carrier_lock_test:f64,
+	last_signal_plus_noise_power:f64,
+	last_signal_power:f64,
 }
 
 enum TrackingState {
@@ -52,6 +54,13 @@ impl Tracking {
 
 	pub fn last_cn0_snv_db_hz(&self) -> f64 { self.last_cn0_snv_db_hz }
 	pub fn last_carrier_lock_test(&self) -> f64 { self.last_carrier_lock_test }
+	pub fn estimated_snr(&self) -> f64 {
+		if self.last_signal_power > 0.0 {
+			1.0 / ((self.last_signal_plus_noise_power / self.last_signal_power) - 1.0)
+		} else { 0.0 }
+	}
+	pub fn last_signal_plus_noise_power(&self) -> f64 { self.last_signal_plus_noise_power }
+	pub fn last_signal_power(&self) -> f64 { self.last_signal_power }
 
 	fn cn0_and_tracking_lock_status(&mut self) -> bool {
 		if self.prompt_buffer.len() < 20 { true } else {
@@ -72,6 +81,9 @@ impl Tracking {
 			let this_prn:Vec<Complex<f64>> = self.sample_buffer.iter().map(|(c,_)| *c).collect();
 			let (_, last_idx) = self.sample_buffer.pop().unwrap();
 			self.sample_buffer.clear();
+
+			// Store the signal plus noise power for SNR calculations
+			self.last_signal_plus_noise_power = this_prn.iter().map(|c| c.norm().powi(2)).sum::<f64>() / (next_len as f64);
 
 			Some((this_prn, last_idx)) 
 		} else {
@@ -178,6 +190,8 @@ impl Tracking {
 						// We have enough prompts to build a bit
 						let last_idx:usize = self.prompt_buffer.back().unwrap().1;
 						let this_bit_re:f64 = self.prompt_buffer.drain(..20).map(|(c, _)| c.re).fold(0.0, |a,b| a+b);
+						self.last_signal_power = (this_bit_re / (self.fs / 50.0)).powi(2);
+
 						TrackingResult::Ok{ prompt_i:this_bit_re, bit_idx: last_idx} 
 					}
 				} else { TrackingResult::NotReady }
@@ -250,6 +264,6 @@ pub fn new_default_tracker(prn:usize, acq_freq_hz:f64, fs:f64, bw_pll_hz:f64, bw
 		prompt_buffer: VecDeque::new(), 
 		state: TrackingState::WaitingForInitialLockStatus,
 		fs, local_code, threshold_carrier_lock_test: 0.8, threshold_cn0_snv_db_hz: 30.0,
-		last_cn0_snv_db_hz: 0.0, last_carrier_lock_test: 0.0
+		last_cn0_snv_db_hz: 0.0, last_carrier_lock_test: 0.0, last_signal_plus_noise_power: 0.0, last_signal_power: 0.0,
 	}		
 }

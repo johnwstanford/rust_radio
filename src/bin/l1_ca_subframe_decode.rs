@@ -1,10 +1,11 @@
 
 extern crate clap;
 extern crate colored;
-extern crate rust_radio;
 extern crate dirs;
-extern crate serde;
 extern crate nalgebra as na;
+extern crate rust_radio;
+extern crate rustfft;
+extern crate serde;
 
 use std::collections::VecDeque;
 
@@ -13,6 +14,7 @@ use colored::*;
 use rust_radio::io;
 use rust_radio::gnss::channel;
 use rust_radio::gnss::telemetry_decode::gps::l1_ca_subframe::Subframe as SF;
+use rustfft::num_complex::Complex;
 use serde::{Serialize, Deserialize};
 
 //const C:f64 = 2.99792458e8;					 // [m/s] speed of light
@@ -24,7 +26,11 @@ const NUM_ACTIVE_CHANNELS:usize = 7;
 struct SubframeWithMetadata {
 	subframe: SF,
 	carrier_freq_hz:f64,
+	cn0_snv_db_hz:f64,
+	carrier_lock_test:f64,
+	acq_test_stat:f64,
 	prn:usize,
+	snr:f64,
 }
 
 fn main() {
@@ -56,7 +62,7 @@ fn main() {
 
 	let mut all_results:Vec<SubframeWithMetadata> = Vec::new();
 
-	for s in io::file_source_i16_complex(&fname) {
+	for s in io::file_source_i16_complex(&fname).map(|(x, idx)| (Complex{ re: x.0 as f64, im: x.1 as f64 }, idx)) {
 
 		for chn in &mut active_channels {
 			match chn.apply(s) {
@@ -66,7 +72,13 @@ fn main() {
 				channel::ChannelResult::Ok{sf:Some(subframe)} => {
 		
 					eprintln!("New Subframe: {}", format!("{:?}", subframe).blue());
-					let sf_with_metadata = SubframeWithMetadata{ subframe, carrier_freq_hz: chn.carrier_freq_hz(), prn: chn.prn };
+					let sf_with_metadata = SubframeWithMetadata{ subframe, 
+						carrier_freq_hz:   chn.carrier_freq_hz(), 
+						cn0_snv_db_hz:     chn.last_cn0_snv_db_hz(),
+						carrier_lock_test: chn.last_carrier_lock_test(),
+						acq_test_stat:     chn.last_acq_test_stat(),
+						prn:               chn.prn,
+						snr:               chn.estimated_snr() };
 					all_results.push(sf_with_metadata);
 				},
 				channel::ChannelResult::Err(e) => eprintln!("{}", format!("PRN {}: Error due to {:?}", chn.prn, e).red()),

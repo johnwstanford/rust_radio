@@ -1,10 +1,11 @@
 
 extern crate clap;
 extern crate colored;
-extern crate rust_radio;
 extern crate dirs;
-extern crate serde;
 extern crate nalgebra as na;
+extern crate rust_radio;
+extern crate rustfft;
+extern crate serde;
 
 use std::collections::VecDeque;
 
@@ -14,6 +15,7 @@ use na::{Vector3, Vector4, DVector, DMatrix};
 use rust_radio::io;
 use rust_radio::gnss::channel;
 use rust_radio::utils::kinematics;
+use rustfft::num_complex::Complex;
 use serde::{Serialize, Deserialize};
 
 // TODO: make these configurable
@@ -64,7 +66,7 @@ fn main() {
 
 	let mut x_master = Vector4::new(0.0, 0.0, 0.0, 0.0);
 
-	for s in io::file_source_i16_complex(&fname) {
+	for s in io::file_source_i16_complex(&fname).map(|(x, idx)| (Complex{ re: x.0 as f64, im: x.1 as f64 }, idx)) {
 
 		let current_rx_time:f64 = (s.1 as f64) / fs;
 		tow_rcv += 1.0 / fs;

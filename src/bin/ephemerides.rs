@@ -4,6 +4,7 @@ extern crate colored;
 extern crate dirs;
 extern crate nalgebra as na;
 extern crate regex;
+extern crate rustfft;
 extern crate rust_radio;
 extern crate serde;
 
@@ -14,6 +15,7 @@ use std::io::{BufReader, Write};
 use clap::{Arg, App};
 use colored::*;
 use regex::Regex;
+use rustfft::num_complex::Complex;
 use rust_radio::io;
 use rust_radio::gnss::{channel, pvt};
 
@@ -58,7 +60,7 @@ fn main() {
 			let mut inactive_channels:VecDeque<channel::Channel> = (1..=32).map(|prn| channel::new_channel(prn, fs, 0.0, 0.01)).collect();
 			let mut active_channels:VecDeque<channel::Channel>   = inactive_channels.drain(..NUM_ACTIVE_CHANNELS).collect();
 
-			for s in io::file_source_i16_complex(&fname) {
+			for s in io::file_source_i16_complex(&fname).map(|(x, idx)| (Complex{ re: x.0 as f64, im: x.1 as f64 }, idx)) {
 
 				for chn in &mut active_channels {
 					match chn.apply(s) {

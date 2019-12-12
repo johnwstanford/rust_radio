@@ -61,7 +61,7 @@ fn main() {
 		tow_rcv += 1.0 / fs;
 		if tow_rcv > WEEK_SEC { tow_rcv -= WEEK_SEC; }
 
-		let mut obs_this_soln:Vec<channel::ChannelObservation> = Vec::new();
+		let mut obs_this_soln:Vec<channel::track_and_tlm::ChannelObservation> = Vec::new();
 		for chn in &mut active_channels {
 			if (s.1)%pvt_rate_samples == 0 {
 				let opt_co = chn.get_observation(current_rx_time - 0.1, tow_rcv - 0.1);
@@ -97,7 +97,7 @@ fn main() {
 		if (s.1 % (fs as usize / 10) == 0) && (s.1 > 0) {
 			for _ in 0..NUM_ACTIVE_CHANNELS {
 				let this_channel = active_channels.pop_front().unwrap();
-				if this_channel.state() == channel::ChannelState::Acquisition {
+				if this_channel.state() == channel::track_and_tlm::ChannelState::AwaitingAcquisition {
 					// Move this channel to inactive and replace it
 					let replacement_channel = inactive_channels.pop_front().unwrap();
 					eprintln!("{:.1} [sec]: Putting PRN {} in the inactive buffer, replacing with PRN {}", current_rx_time, this_channel.prn, replacement_channel.prn);

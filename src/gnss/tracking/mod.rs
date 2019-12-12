@@ -37,6 +37,7 @@ pub struct Tracking {
 	last_signal_power:f64,
 }
 
+#[derive(Debug)]
 enum TrackingState {
 	WaitingForInitialLockStatus,
 	WaitingForFirstTransition,
@@ -136,7 +137,7 @@ impl Tracking {
 			// Update carrier tracking
 			let carrier_error = if prompt.re == 0.0 { 0.0 } else { (prompt.im / prompt.re).atan() / self.fs };
 			self.carrier_dphase_rad += self.carrier_filter.apply(carrier_error);
-
+	
 			let code_error = {
 				let e:f64 = early.norm();
 				let l:f64 = late.norm();

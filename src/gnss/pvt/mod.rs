@@ -27,7 +27,7 @@ pub struct GnssFix {
 	pub current_rx_time: f64,
 }
 
-pub fn solve_position_and_time(obs_this_soln:Vec<channel::ChannelObservation>, x0:Vector4<f64>, current_rx_time:f64) -> Option<(GnssFix, Vector4<f64>)> {
+pub fn solve_position_and_time(obs_this_soln:Vec<channel::track_and_tlm::ChannelObservation>, x0:Vector4<f64>, current_rx_time:f64) -> Option<(GnssFix, Vector4<f64>)> {
 	if obs_this_soln.len() >= SV_COUNT_THRESHOLD {
 		let n = obs_this_soln.len();
 

@@ -92,7 +92,7 @@ fn main() {
 				if (s.1 % (fs as usize / 10) == 0) && (s.1 > 0) {
 					for _ in 0..NUM_ACTIVE_CHANNELS {
 						let this_channel = active_channels.pop_front().unwrap();
-						if this_channel.state() == channel::ChannelState::Acquisition {
+						if this_channel.state() == channel::track_and_tlm::ChannelState::AwaitingAcquisition {
 							// Move this channel to inactive and replace it
 							let replacement_channel = inactive_channels.pop_front().unwrap();
 							eprintln!("{:.1} [sec]: Putting PRN {} in the inactive buffer, replacing with PRN {}", (s.1 as f64)/fs, this_channel.prn, replacement_channel.prn);

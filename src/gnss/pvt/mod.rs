@@ -3,16 +3,86 @@ extern crate nalgebra as na;
 extern crate serde;
 
 use self::serde::{Serialize, Deserialize};
-use self::na::base::{Matrix3, Matrix3x1, U3, U1};
+use self::na::base::{Matrix3, Matrix3x1, DMatrix, Vector3, Vector4, DVector, U3, U1};
 
 use ::utils::kinematics;
+use ::gnss::channel;
 
 pub const MU:f64 = 3.986005e14;                  // [m^3/s^2] WGS-84 value of the earth's gravitational constant
 pub const OMEGA_DOT_E:f64 = 7.2921151467e-5;     // [rad/s] WGS-84 value of the earth's rotation rate
 pub const C:f64 = 2.99792458e8;					 // [m/s] speed of light
 pub const F:f64 = -4.442807633e-10;				 // [sec/root-meter]
 
+const MAX_ITER:usize = 10;
+const SV_COUNT_THRESHOLD:usize = 5;
+const RESIDUAL_NORM_THRESHOLD_METERS:f64 = 200.0;
+
 use std::f64::consts;
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct GnssFix {
+	pub pos_ecef:(f64, f64, f64),
+	pub residual_norm:f64,
+	pub sv_count:usize,
+	pub current_rx_time: f64,
+}
+
+pub fn solve_position_and_time(obs_this_soln:Vec<channel::ChannelObservation>, x0:Vector4<f64>, current_rx_time:f64) -> Option<(GnssFix, Vector4<f64>)> {
+	if obs_this_soln.len() >= SV_COUNT_THRESHOLD {
+		let n = obs_this_soln.len();
+
+		let mut x = x0.clone();
+		let mut v = DVector::from_element(n, 0.0);
+
+		// Try to solve for position
+		for _ in 0..MAX_ITER {
+			let pos_wgs84 = kinematics::ecef_to_wgs84(x[0], x[1], x[2]);
+
+			let mut h = DMatrix::from_element(n, 4, 0.0);
+
+			for (i, ob) in obs_this_soln.iter().enumerate() {
+				let (e,r) = kinematics::dist_with_sagnac_effect(
+					Vector3::new(ob.pos_ecef.0, ob.pos_ecef.1, ob.pos_ecef.2),
+					Vector3::new(x[0], x[1], x[2]));
+				let (_, el) = kinematics::az_el(pos_wgs84.latitude, pos_wgs84.longitude, pos_wgs84.height_above_ellipsoid, e);
+
+				let sig = ((0.9 / el.sin()) + 5.94).sqrt();
+
+				v[i] = (ob.pseudorange_m + (kinematics::C)*(ob.sv_clock - ob.t_gd) - r - x[3]) / sig;
+				for j in 0..3 { h[(i,j)] = -e[j]/sig; }
+				h[(i,3)] = 1.0/sig;
+			}
+
+
+			if let Some(q) = (h.tr_mul(&h)).try_inverse() {
+				let dx = q * h.tr_mul(&v);
+
+				x = x + dx.clone();
+
+				if dx.norm() < 1.0e-4 { 
+
+					// The iterative least squares method has converged
+					if x.iter().chain(v.iter()).all(|a| a.is_finite()) {
+						let fix = GnssFix{pos_ecef:(x[0], x[1], x[2]), residual_norm:v.norm(), sv_count:n, current_rx_time };
+						if fix.residual_norm <= RESIDUAL_NORM_THRESHOLD_METERS {
+							return Some((fix, x))															
+						}
+					}
+
+					break;
+				}
+
+			} else { 
+				// If we get a non-invertible matrix, just return None
+				break;
+			}
+
+		}
+
+	}
+
+	None
+}
 
 #[derive(Debug)]
 pub struct IonosphericModel {

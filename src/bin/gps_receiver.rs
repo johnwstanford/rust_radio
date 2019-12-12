@@ -11,27 +11,16 @@ use std::collections::VecDeque;
 
 use clap::{Arg, App};
 use colored::*;
-use na::{Vector3, Vector4, DVector, DMatrix};
+use na::Vector4;
 use rust_radio::io;
 use rust_radio::gnss::channel;
+use rust_radio::gnss::pvt;
 use rust_radio::utils::kinematics;
 use rustfft::num_complex::Complex;
-use serde::{Serialize, Deserialize};
 
 // TODO: make these configurable
 const NUM_ACTIVE_CHANNELS:usize = 7;
-const MAX_ITER:usize = 10;
-const SV_COUNT_THRESHOLD:usize = 5;
-const RESIDUAL_NORM_THRESHOLD_METERS:f64 = 200.0;
 const WEEK_SEC:f64 = 3600.0 * 24.0 * 7.0;
-
-#[derive(Debug, Serialize, Deserialize)]
-struct GnssFix {
-	pos_ecef:(f64, f64, f64),
-	residual_norm:f64,
-	sv_count:usize,
-	current_rx_time: f64,
-}
 
 fn main() {
 
@@ -62,7 +51,7 @@ fn main() {
 	let mut active_channels:VecDeque<channel::Channel>   = inactive_channels.drain(..NUM_ACTIVE_CHANNELS).collect();
 
 	let pvt_rate_samples:usize = (fs * 0.02) as usize;
-	let mut all_fixes:Vec<GnssFix> = vec![];
+	let mut all_fixes:Vec<pvt::GnssFix> = vec![];
 
 	let mut x_master = Vector4::new(0.0, 0.0, 0.0, 0.0);
 
@@ -94,66 +83,14 @@ fn main() {
 			}
 		}
 
-		if obs_this_soln.len() >= SV_COUNT_THRESHOLD {
-			let n = obs_this_soln.len();
+		if let Some((fix, x)) = pvt::solve_position_and_time(obs_this_soln, x_master, current_rx_time) {
+			let new_pos = kinematics::ecef_to_wgs84(fix.pos_ecef.0, fix.pos_ecef.1, fix.pos_ecef.2);
+			eprintln!("{}", format!("Position Fix: {:.5} [deg] lat, {:.5} [deg] lon, {:.1} [m]", 
+				new_pos.latitude * 57.3, new_pos.longitude * 57.3, new_pos.height_above_ellipsoid).green().bold());
 
-			let mut x = x_master.clone();
-			let mut v = DVector::from_element(n, 0.0);
-
-			// Try to solve for position
-			for _ in 0..MAX_ITER {
-				let pos_wgs84 = kinematics::ecef_to_wgs84(x[0], x[1], x[2]);
-
-				let mut h = DMatrix::from_element(n, 4, 0.0);
-
-				for (i, ob) in obs_this_soln.iter().enumerate() {
-					let (e,r) = kinematics::dist_with_sagnac_effect(
-						Vector3::new(ob.pos_ecef.0, ob.pos_ecef.1, ob.pos_ecef.2),
-						Vector3::new(x[0], x[1], x[2]));
-					let (_, el) = kinematics::az_el(pos_wgs84.latitude, pos_wgs84.longitude, pos_wgs84.height_above_ellipsoid, e);
-
-					let sig = ((0.9 / el.sin()) + 5.94).sqrt();
-
-					v[i] = (ob.pseudorange_m + (kinematics::C)*(ob.sv_clock - ob.t_gd) - r - x[3]) / sig;
-					for j in 0..3 { h[(i,j)] = -e[j]/sig; }
-					h[(i,3)] = 1.0/sig;
-				}
-
-
-				if let Some(q) = (h.tr_mul(&h)).try_inverse() {
-					let dx = q * h.tr_mul(&v);
-
-					x = x + dx.clone();
-
-					if dx.norm() < 1.0e-4 { 
-
-						// The iterative least squares method has converged
-						if x.iter().chain(v.iter()).all(|a| a.is_finite()) {
-							let fix = GnssFix{pos_ecef:(x[0], x[1], x[2]), residual_norm:v.norm(), sv_count:n, current_rx_time };
-							if fix.residual_norm <= RESIDUAL_NORM_THRESHOLD_METERS {
-								let new_pos = kinematics::ecef_to_wgs84(x[0], x[1], x[2]);
-								eprintln!("{}", format!("Position Fix: {:.5} [deg] lat, {:.5} [deg] lon, {:.1} [m]", 
-									new_pos.latitude * 57.3, new_pos.longitude * 57.3, new_pos.height_above_ellipsoid).green().bold());
-
-								// Commit this fix to the master fix
-								for i in 0..3 { x_master[i] = x[i]; }
-								tow_rcv -= x[3] / (kinematics::C);
-
-								all_fixes.push(fix);								
-							}
-						}
-
-						// Whether we committed the fix or not, break out of the for loop						
-						break; 
-					}
-
-				} else { 
-					// If we get a non-invertible matrix, just break out of the for loop
-					break; 
-				}
-
-			}
-
+			tow_rcv -= x[3] / (kinematics::C);
+			for i in 0..3 { x_master[i] = x[i]; }
+			all_fixes.push(fix);
 		}
 
 		// Every 0.1 sec, move channels without a signal lock to the inactive buffer and replace them with new ones

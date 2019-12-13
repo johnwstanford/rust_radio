@@ -26,7 +26,7 @@ pub struct GnssFix {
 	pub current_rx_time: f64,
 }
 
-pub fn solve_position_and_time(obs_this_soln:Vec<channel::track_and_tlm::ChannelObservation>, x0:Vector4<f64>, current_rx_time:f64) -> Option<(GnssFix, Vector4<f64>)> {
+pub fn solve_position_and_time(obs_this_soln:Vec<channel::track_and_tlm::ChannelObservation>, x0:Vector4<f64>, current_rx_time:f64) -> Result<(GnssFix, Vector4<f64>), &'static str> {
 	if obs_this_soln.len() >= SV_COUNT_THRESHOLD {
 		let n = obs_this_soln.len();
 
@@ -64,22 +64,22 @@ pub fn solve_position_and_time(obs_this_soln:Vec<channel::track_and_tlm::Channel
 					if x.iter().chain(v.iter()).all(|a| a.is_finite()) {
 						// Return the fix regardless of the residual norm and let the calling scope determine whether it's good enough
 						let fix = GnssFix{pos_ecef:(x[0], x[1], x[2]), residual_norm:v.norm(), sv_count:n, current_rx_time };
-						return Some((fix, x))
+						return Ok((fix, x))
 					}
 
-					break;
+					return Err("Solution and/or residual is infinite");
 				}
 
 			} else { 
 				// If we get a non-invertible matrix, just return None
-				break;
+				return Err("Non-invertible matrix");
 			}
 
 		}
 
 	}
 
-	None
+	Err("Not enough observations")
 }
 
 #[derive(Debug)]

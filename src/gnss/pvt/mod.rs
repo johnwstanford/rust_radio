@@ -15,7 +15,6 @@ pub const F:f64 = -4.442807633e-10;				 // [sec/root-meter]
 
 const MAX_ITER:usize = 10;
 const SV_COUNT_THRESHOLD:usize = 5;
-const RESIDUAL_NORM_THRESHOLD_METERS:f64 = 200.0;
 
 use std::f64::consts;
 
@@ -63,10 +62,9 @@ pub fn solve_position_and_time(obs_this_soln:Vec<channel::track_and_tlm::Channel
 
 					// The iterative least squares method has converged
 					if x.iter().chain(v.iter()).all(|a| a.is_finite()) {
+						// Return the fix regardless of the residual norm and let the calling scope determine whether it's good enough
 						let fix = GnssFix{pos_ecef:(x[0], x[1], x[2]), residual_norm:v.norm(), sv_count:n, current_rx_time };
-						if fix.residual_norm <= RESIDUAL_NORM_THRESHOLD_METERS {
-							return Some((fix, x))															
-						}
+						return Some((fix, x))
 					}
 
 					break;

@@ -4,6 +4,8 @@ pub mod track_and_tlm;
 extern crate rustfft;
 extern crate serde;
 
+use std::rc::Rc;
+
 use self::rustfft::num_complex::Complex;
 
 use ::DigSigProcErr;
@@ -27,14 +29,14 @@ pub enum ChannelResult {
 	Err(DigSigProcErr),
 }
 
-pub struct Channel<A: acquisition::Acquisition> {
+pub struct Channel {
 	pub prn:usize,
 	pub fs:f64,
-	acq:     A,
+	acq:     Rc<dyn acquisition::Acquisition>,
 	trk_tlm: track_and_tlm::Channel,
 }
 
-impl<A: acquisition::Acquisition> Channel<A> {
+impl Channel {
 
 	// Read-only getter methods
 	pub fn carrier_freq_hz(&self) -> f64 { self.trk_tlm.carrier_freq_hz() }
@@ -52,9 +54,14 @@ impl<A: acquisition::Acquisition> Channel<A> {
 	pub fn apply(&mut self, s:Sample) -> ChannelResult { 
 		match self.state() {
 			track_and_tlm::ChannelState::AwaitingAcquisition => {
-				if let Some(r) = self.acq.apply(s.0) {
-					self.trk_tlm.acquire(r.test_statistic, r.doppler_hz as f64, r.code_phase);
-					ChannelResult::Acquisition{ doppler_hz: r.doppler_hz, test_stat: r.test_statistic }
+				if let Some(a) = Rc::get_mut(&mut self.acq) {
+					a.provide_sample(s.0).unwrap();
+					if let Ok(Some(r)) = a.block_for_result(self.prn) {
+						self.trk_tlm.acquire(r.test_statistic, r.doppler_hz as f64, r.code_phase);
+						ChannelResult::Acquisition{ doppler_hz: r.doppler_hz, test_stat: r.test_statistic }
+					} else {
+						ChannelResult::NotReady("Unable to borrow acquisition object mutably")		
+					}
 				}
 				else { ChannelResult::NotReady("Waiting on acquisition") }
 			},
@@ -73,13 +80,13 @@ impl<A: acquisition::Acquisition> Channel<A> {
 
 }
 
-pub fn new_default_channel(prn:usize, fs:f64, acq_freq:f64) -> Channel<acquisition::basic_pcps::Acquisition> { 
+pub fn new_default_channel(prn:usize, fs:f64, acq_freq:f64) -> Channel { 
 	new_channel(prn, fs, acq_freq, DEFAULT_TEST_STAT_THRESHOLD) 
 }
 
-pub fn new_channel(prn:usize, fs:f64, acq_freq:f64, test_stat:f64) -> Channel<acquisition::basic_pcps::Acquisition> {
+pub fn new_channel(prn:usize, fs:f64, acq_freq:f64, test_stat:f64) -> Channel {
 	let symbol:Vec<i8> = l1_ca_signal::prn_int_sampled(prn, fs);
-	let acq = acquisition::make_acquisition(symbol, fs, DEFAULT_DOPPLER_STEP_HZ, DEFAULT_DOPPLER_MAX_HZ, test_stat);
+	let acq = Rc::new(acquisition::make_acquisition(symbol, fs, DEFAULT_DOPPLER_STEP_HZ, DEFAULT_DOPPLER_MAX_HZ, test_stat));
 	let trk_tlm = track_and_tlm::new_channel(prn, fs, acq_freq);
 
 	Channel { prn, fs, acq, trk_tlm }

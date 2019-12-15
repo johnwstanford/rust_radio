@@ -15,7 +15,8 @@ pub struct AcquisitionResult {
 }
 
 pub trait Acquisition {
-	fn apply(&mut self, sample:Complex<f64>) -> Option<AcquisitionResult>;
+	fn provide_sample(&mut self, sample:Complex<f64>) -> Result<(), &str>;
+	fn block_for_result(&mut self, prn:usize) -> Result<Option<AcquisitionResult>, &str>;
 }
 
 pub fn make_acquisition(symbol:Vec<i8>, fs:f64, doppler_step:usize, doppler_max:i16, test_statistic_threshold:f64) -> basic_pcps::Acquisition {

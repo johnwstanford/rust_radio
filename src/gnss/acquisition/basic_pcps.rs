@@ -1,8 +1,8 @@
 
 extern crate rustfft;
 
-use std::sync::Arc;
 use std::f64::consts;
+use std::sync::Arc;
 
 use self::rustfft::FFT;
 use self::rustfft::num_complex::Complex;
@@ -25,8 +25,12 @@ pub struct Acquisition {
 
 impl super::Acquisition for Acquisition {
 
-	fn apply(&mut self, sample:Complex<f64>) -> Option<super::AcquisitionResult> {
+	fn provide_sample(&mut self, sample:Complex<f64>) -> Result<(), &str> {
 		self.buffer.push(sample);
+		Ok(())
+	}
+
+	fn block_for_result(&mut self, prn:usize) -> Result<Option<super::AcquisitionResult>, &str> {
 		if self.buffer.len() >= self.len_fft {
 			self.skip_count += 1;
 			if self.skip_count >= N_SKIP {
@@ -81,20 +85,21 @@ impl super::Acquisition for Acquisition {
 				self.buffer.clear();
 
 				// Return the best match if it meets the threshold
-				if best_match.test_statistic > self.test_statistic_threshold { Some(best_match) }
-				else { None }
+				if best_match.test_statistic > self.test_statistic_threshold { Ok(Some(best_match)) }
+				else { Ok(None) }
 
 			} else {
 				// Clear the buffer for next time
 				self.buffer.clear();
 
-				None
+				Ok(None)
 			}
 
 		} else {
 			// Buffer isn't full yet, so there's no result to return
-			None
+			Ok(None)
 		}
+
 	}
 
 }

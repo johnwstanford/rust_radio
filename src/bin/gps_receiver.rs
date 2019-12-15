@@ -14,7 +14,6 @@ use colored::*;
 use na::Vector4;
 use rust_radio::io;
 use rust_radio::gnss::{channel, pvt};
-use rust_radio::gnss::acquisition::basic_pcps;
 use rust_radio::utils::kinematics;
 use rustfft::num_complex::Complex;
 
@@ -47,8 +46,8 @@ fn main() {
 
 	eprintln!("Decoding {} at {} [samples/sec]", &fname, &fs);
 
-	let mut inactive_channels:VecDeque<channel::Channel<basic_pcps::Acquisition>> = (1..=32).map(|prn| channel::new_channel(prn, fs, 0.0, 0.01)).collect();
-	let mut active_channels:VecDeque<channel::Channel<basic_pcps::Acquisition>>   = inactive_channels.drain(..NUM_ACTIVE_CHANNELS).collect();
+	let mut inactive_channels:VecDeque<channel::Channel> = (1..=32).map(|prn| channel::new_channel(prn, fs, 0.0, 0.01)).collect();
+	let mut active_channels:VecDeque<channel::Channel>   = inactive_channels.drain(..NUM_ACTIVE_CHANNELS).collect();
 
 	let pvt_rate_samples:usize = (fs * 0.02) as usize;
 	let mut all_fixes:Vec<pvt::GnssFix> = vec![];

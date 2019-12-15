@@ -55,7 +55,7 @@ impl Channel {
 		match self.state() {
 			track_and_tlm::ChannelState::AwaitingAcquisition => {
 				if let Some(a) = Rc::get_mut(&mut self.acq) {
-					a.provide_sample(s.0).unwrap();
+					a.provide_sample(s).unwrap();
 					if let Ok(Some(r)) = a.block_for_result(self.prn) {
 						self.trk_tlm.acquire(r.test_statistic, r.doppler_hz as f64, r.code_phase);
 						ChannelResult::Acquisition{ doppler_hz: r.doppler_hz, test_stat: r.test_statistic }
@@ -86,7 +86,7 @@ pub fn new_default_channel(prn:usize, fs:f64, acq_freq:f64) -> Channel {
 
 pub fn new_channel(prn:usize, fs:f64, acq_freq:f64, test_stat:f64) -> Channel {
 	let symbol:Vec<i8> = l1_ca_signal::prn_int_sampled(prn, fs);
-	let acq = Rc::new(acquisition::make_acquisition(symbol, fs, DEFAULT_DOPPLER_STEP_HZ, DEFAULT_DOPPLER_MAX_HZ, test_stat));
+	let acq = Rc::new(acquisition::make_acquisition(symbol, fs, prn, DEFAULT_DOPPLER_STEP_HZ, DEFAULT_DOPPLER_MAX_HZ, test_stat));
 	let trk_tlm = track_and_tlm::new_channel(prn, fs, acq_freq);
 
 	Channel { prn, fs, acq, trk_tlm }

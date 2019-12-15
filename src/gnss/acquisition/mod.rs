@@ -15,11 +15,11 @@ pub struct AcquisitionResult {
 }
 
 pub trait Acquisition {
-	fn provide_sample(&mut self, sample:Complex<f64>) -> Result<(), &str>;
+	fn provide_sample(&mut self, sample:(Complex<f64>, usize)) -> Result<(), &str>;
 	fn block_for_result(&mut self, prn:usize) -> Result<Option<AcquisitionResult>, &str>;
 }
 
-pub fn make_acquisition(symbol:Vec<i8>, fs:f64, doppler_step:usize, doppler_max:i16, test_statistic_threshold:f64) -> basic_pcps::Acquisition {
+pub fn make_acquisition(symbol:Vec<i8>, fs:f64, prn:usize, doppler_step:usize, doppler_max:i16, test_statistic_threshold:f64) -> basic_pcps::Acquisition {
 
 	let len_fft:usize = symbol.len();
 	let doppler_freqs:Vec<i16> = (-doppler_max..doppler_max).step_by(doppler_step as usize).collect();
@@ -39,7 +39,7 @@ pub fn make_acquisition(symbol:Vec<i8>, fs:f64, doppler_step:usize, doppler_max:
 	let mut ifft_out: Vec<Complex<f64>> = vec![Complex::zero(); len_fft];
 	ifft.process(&mut fft_out, &mut ifft_out);
 
-	let buffer:Vec<Complex<f64>> = vec![];
+	let buffer:Vec<Complex<f64>> = vec![Complex::zero()];	// Because we're starting last_sample_idx at zero
 
-	basic_pcps::Acquisition{ fs, test_statistic_threshold, doppler_freqs, buffer, len_fft, fft, local_code_freq_domain, fft_out, ifft, ifft_out, skip_count: 0 }
+	basic_pcps::Acquisition{ fs, prn, test_statistic_threshold, doppler_freqs, buffer, len_fft, fft, local_code_freq_domain, fft_out, ifft, ifft_out, skip_count: 0, last_sample_idx: 0 }
 }

@@ -11,6 +11,7 @@ const N_SKIP:usize = 9;
 
 pub struct Acquisition {
 	pub fs:f64,
+	pub prn:usize,
 	pub test_statistic_threshold:f64,
 	pub doppler_freqs:Vec<i16>,
 	pub buffer:Vec<Complex<f64>>,
@@ -21,17 +22,21 @@ pub struct Acquisition {
 	pub ifft:Arc<dyn FFT<f64>>,
 	pub ifft_out: Vec<Complex<f64>>,
 	pub skip_count: usize,
+	pub last_sample_idx: usize,
 }
 
 impl super::Acquisition for Acquisition {
 
-	fn provide_sample(&mut self, sample:Complex<f64>) -> Result<(), &str> {
-		self.buffer.push(sample);
+	fn provide_sample(&mut self, sample:(Complex<f64>, usize)) -> Result<(), &str> {
+		if sample.1 > self.last_sample_idx {
+			self.buffer.push(sample.0);
+			self.last_sample_idx = sample.1;
+		}
 		Ok(())
 	}
 
 	fn block_for_result(&mut self, prn:usize) -> Result<Option<super::AcquisitionResult>, &str> {
-		if self.buffer.len() >= self.len_fft {
+		if self.buffer.len() >= self.len_fft && prn == self.prn {
 			self.skip_count += 1;
 			if self.skip_count >= N_SKIP {
 				self.skip_count = 0;

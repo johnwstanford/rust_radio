@@ -27,14 +27,14 @@ pub enum ChannelResult {
 	Err(DigSigProcErr),
 }
 
-pub struct Channel {
+pub struct Channel<A: acquisition::Acquisition> {
 	pub prn:usize,
 	pub fs:f64,
-	acq:     acquisition::Acquisition,
+	acq:     A,
 	trk_tlm: track_and_tlm::Channel,
 }
 
-impl Channel {
+impl<A: acquisition::Acquisition> Channel<A> {
 
 	// Read-only getter methods
 	pub fn carrier_freq_hz(&self) -> f64 { self.trk_tlm.carrier_freq_hz() }
@@ -73,9 +73,11 @@ impl Channel {
 
 }
 
-pub fn new_default_channel(prn:usize, fs:f64, acq_freq:f64) -> Channel { new_channel(prn, fs, acq_freq, DEFAULT_TEST_STAT_THRESHOLD) }
+pub fn new_default_channel(prn:usize, fs:f64, acq_freq:f64) -> Channel<acquisition::basic_pcps::Acquisition> { 
+	new_channel(prn, fs, acq_freq, DEFAULT_TEST_STAT_THRESHOLD) 
+}
 
-pub fn new_channel(prn:usize, fs:f64, acq_freq:f64, test_stat:f64) -> Channel {
+pub fn new_channel(prn:usize, fs:f64, acq_freq:f64, test_stat:f64) -> Channel<acquisition::basic_pcps::Acquisition> {
 	let symbol:Vec<i8> = l1_ca_signal::prn_int_sampled(prn, fs);
 	let acq = acquisition::make_acquisition(symbol, fs, DEFAULT_DOPPLER_STEP_HZ, DEFAULT_DOPPLER_MAX_HZ, test_stat);
 	let trk_tlm = track_and_tlm::new_channel(prn, fs, acq_freq);

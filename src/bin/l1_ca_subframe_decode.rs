@@ -12,7 +12,7 @@ use std::collections::VecDeque;
 use clap::{Arg, App};
 use colored::*;
 use rust_radio::io;
-use rust_radio::gnss::channel;
+use rust_radio::gnss::{channel, acquisition::fast_pcps};
 use rust_radio::gnss::telemetry_decode::gps::l1_ca_subframe::Subframe as SF;
 use rustfft::num_complex::Complex;
 use serde::{Serialize, Deserialize};
@@ -55,8 +55,8 @@ fn main() {
 
 	eprintln!("Decoding {} at {} [samples/sec]", &fname, &fs);
 
-	let mut inactive_channels:VecDeque<channel::Channel> = (1..=32).map(|prn| channel::new_channel(prn, fs, 0.01)).collect();
-	let mut active_channels:VecDeque<channel::Channel>   = inactive_channels.drain(..NUM_ACTIVE_CHANNELS).collect();
+	let mut inactive_channels:VecDeque<channel::Channel<fast_pcps::Acquisition>> = (1..=32).map(|prn| channel::new_channel(prn, fs, 0.01)).collect();
+	let mut active_channels:VecDeque<channel::Channel<fast_pcps::Acquisition>>   = inactive_channels.drain(..NUM_ACTIVE_CHANNELS).collect();
 
 	let mut all_results:Vec<SubframeWithMetadata> = Vec::new();
 

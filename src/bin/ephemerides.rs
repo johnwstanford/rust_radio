@@ -17,7 +17,7 @@ use colored::*;
 use regex::Regex;
 use rustfft::num_complex::Complex;
 use rust_radio::io;
-use rust_radio::gnss::{channel, pvt};
+use rust_radio::gnss::{channel, pvt, acquisition::fast_pcps};
 
 const NUM_ACTIVE_CHANNELS:usize = 7;
 
@@ -57,8 +57,8 @@ fn main() {
 			let fs:f64 = fs_str.parse().unwrap();
 			eprintln!("Decoding {} at {} [samples/sec]", &fname, &fs);
 		
-			let mut inactive_channels:VecDeque<channel::Channel> = (1..=32).map(|prn| channel::new_channel(prn, fs, 0.01)).collect();
-			let mut active_channels:VecDeque<channel::Channel>   = inactive_channels.drain(..NUM_ACTIVE_CHANNELS).collect();
+			let mut inactive_channels:VecDeque<channel::Channel<fast_pcps::Acquisition>> = (1..=32).map(|prn| channel::new_channel(prn, fs, 0.01)).collect();
+			let mut active_channels:VecDeque<channel::Channel<fast_pcps::Acquisition>>   = inactive_channels.drain(..NUM_ACTIVE_CHANNELS).collect();
 
 			for s in io::file_source_i16_complex(&fname).map(|(x, idx)| (Complex{ re: x.0 as f64, im: x.1 as f64 }, idx)) {
 

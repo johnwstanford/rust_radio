@@ -4,8 +4,6 @@ pub mod track_and_tlm;
 extern crate rustfft;
 extern crate serde;
 
-use std::rc::Rc;
-
 use self::rustfft::num_complex::Complex;
 
 use ::DigSigProcErr;
@@ -29,14 +27,14 @@ pub enum ChannelResult {
 	Err(DigSigProcErr),
 }
 
-pub struct Channel {
-	pub prn:usize,
-	pub fs:f64,
-	acq:     Rc<dyn acquisition::Acquisition>,
+pub struct Channel<A: acquisition::Acquisition> {
+	pub prn: usize,
+	pub fs:  f64,
+	acq:     A,
 	trk_tlm: track_and_tlm::Channel,
 }
 
-impl Channel {
+impl<A: acquisition::Acquisition> Channel<A> {
 
 	// Read-only getter methods
 	pub fn carrier_freq_hz(&self) -> f64 { self.trk_tlm.carrier_freq_hz() }
@@ -54,16 +52,13 @@ impl Channel {
 	pub fn apply(&mut self, s:Sample) -> ChannelResult { 
 		match self.state() {
 			track_and_tlm::ChannelState::AwaitingAcquisition => {
-				if let Some(a) = Rc::get_mut(&mut self.acq) {
-					a.provide_sample(s).unwrap();
-					if let Ok(Some(r)) = a.block_for_result(self.prn) {
-						self.trk_tlm.acquire(r.test_statistic, r.doppler_hz as f64, r.code_phase);
-						ChannelResult::Acquisition{ doppler_hz: r.doppler_hz, test_stat: r.test_statistic }
-					} else {
-						ChannelResult::NotReady("Waiting on acquisition")		
-					}
+				self.acq.provide_sample(s).unwrap();
+				if let Ok(Some(r)) = self.acq.block_for_result(self.prn) {
+					self.trk_tlm.acquire(r.test_statistic, r.doppler_hz as f64, r.code_phase);
+					ChannelResult::Acquisition{ doppler_hz: r.doppler_hz, test_stat: r.test_statistic }
+				} else {
+					ChannelResult::NotReady("Waiting on acquisition")		
 				}
-				else { ChannelResult::NotReady("Unable to borrow acquisition object mutably") }
 			},
 			_ => match self.trk_tlm.apply(s) {
 				track_and_tlm::ChannelResult::NotReady(s) => ChannelResult::NotReady(s),
@@ -78,19 +73,19 @@ impl Channel {
 		self.trk_tlm.get_observation(rx_time, rx_tow_sec)
 	}
 
-	pub fn with_acq(prn:usize, fs:f64, acq:Rc<dyn acquisition::Acquisition>) -> Channel {
+	pub fn with_acq(prn:usize, fs:f64, acq:A) -> Channel<A> {
 		let trk_tlm = track_and_tlm::new_channel(prn, fs);
 		Channel { prn, fs, acq, trk_tlm }
 	}
 
 }
 
-pub fn new_default_channel(prn:usize, fs:f64) -> Channel { 
+pub fn new_default_channel<A: acquisition::Acquisition>(prn:usize, fs:f64) -> Channel<acquisition::fast_pcps::Acquisition> { 
 	new_channel(prn, fs, DEFAULT_TEST_STAT_THRESHOLD) 
 }
 
-pub fn new_channel(prn:usize, fs:f64, test_stat:f64) -> Channel {
+pub fn new_channel(prn:usize, fs:f64, test_stat:f64) -> Channel<acquisition::fast_pcps::Acquisition> {
 	let symbol:Vec<i8> = l1_ca_signal::prn_int_sampled(prn, fs);
-	let acq = Rc::new(acquisition::make_acquisition(symbol, fs, prn, 9, 17, test_stat));
+	let acq = acquisition::make_acquisition(symbol, fs, prn, 9, 17, test_stat);
 	Channel::with_acq(prn, fs, acq)
 }

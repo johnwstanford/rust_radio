@@ -60,10 +60,10 @@ impl Channel {
 						self.trk_tlm.acquire(r.test_statistic, r.doppler_hz as f64, r.code_phase);
 						ChannelResult::Acquisition{ doppler_hz: r.doppler_hz, test_stat: r.test_statistic }
 					} else {
-						ChannelResult::NotReady("Unable to borrow acquisition object mutably")		
+						ChannelResult::NotReady("Waiting on acquisition")		
 					}
 				}
-				else { ChannelResult::NotReady("Waiting on acquisition") }
+				else { ChannelResult::NotReady("Unable to borrow acquisition object mutably") }
 			},
 			_ => match self.trk_tlm.apply(s) {
 				track_and_tlm::ChannelResult::NotReady(s) => ChannelResult::NotReady(s),

@@ -78,16 +78,19 @@ impl Channel {
 		self.trk_tlm.get_observation(rx_time, rx_tow_sec)
 	}
 
+	pub fn with_acq(prn:usize, fs:f64, acq:Rc<dyn acquisition::Acquisition>) -> Channel {
+		let trk_tlm = track_and_tlm::new_channel(prn, fs);
+		Channel { prn, fs, acq, trk_tlm }
+	}
+
 }
 
-pub fn new_default_channel(prn:usize, fs:f64, acq_freq:f64) -> Channel { 
-	new_channel(prn, fs, acq_freq, DEFAULT_TEST_STAT_THRESHOLD) 
+pub fn new_default_channel(prn:usize, fs:f64) -> Channel { 
+	new_channel(prn, fs, DEFAULT_TEST_STAT_THRESHOLD) 
 }
 
-pub fn new_channel(prn:usize, fs:f64, acq_freq:f64, test_stat:f64) -> Channel {
+pub fn new_channel(prn:usize, fs:f64, test_stat:f64) -> Channel {
 	let symbol:Vec<i8> = l1_ca_signal::prn_int_sampled(prn, fs);
 	let acq = Rc::new(acquisition::make_acquisition(symbol, fs, prn, 9, 17, test_stat));
-	let trk_tlm = track_and_tlm::new_channel(prn, fs, acq_freq);
-
-	Channel { prn, fs, acq, trk_tlm }
+	Channel::with_acq(prn, fs, acq)
 }

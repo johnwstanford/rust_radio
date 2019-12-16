@@ -205,11 +205,11 @@ impl Channel {
 
 }
 
-pub fn new_default_channel(prn:usize, fs:f64, acq_freq:f64) -> Channel { new_channel(prn, fs, acq_freq) }
+pub fn new_default_channel(prn:usize, fs:f64) -> Channel { new_channel(prn, fs) }
 
-pub fn new_channel(prn:usize, fs:f64, acq_freq:f64) -> Channel {
+pub fn new_channel(prn:usize, fs:f64) -> Channel {
 	let state = ChannelState::AwaitingAcquisition;
-	let trk = tracking::new_default_tracker(prn, acq_freq, fs, DEFAULT_PLL_BW_HZ, DEFAULT_DLL_BW_HZ);
+	let trk = tracking::new_default_tracker(prn, 0.0, fs, DEFAULT_PLL_BW_HZ, DEFAULT_DLL_BW_HZ);
 	let tlm = telemetry_decode::gps::TelemetryDecoder::new();
 
 	Channel{ prn, fs, state, trk, tlm, last_acq_doppler:0.0, last_acq_test_stat: 0.0, last_sample_idx: 0, 

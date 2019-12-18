@@ -16,7 +16,8 @@ mod lock_detectors;
 type Sample = (Complex<f64>, usize);
 
 pub struct Tracking {
-	carrier_phase: Complex<f64>,		// mutable
+	carrier: Complex<f64>,
+	carrier_inc: Complex<f64>,
 	carrier_dphase_rad: f64,
 	code_phase: f64,
 	code_dphase: f64,
@@ -62,6 +63,9 @@ impl Tracking {
 	}
 	pub fn last_signal_plus_noise_power(&self) -> f64 { self.last_signal_plus_noise_power }
 	pub fn last_signal_power(&self) -> f64 { self.last_signal_power }
+	pub fn carrier_freq_hz(&self) -> f64 { (self.carrier_dphase_rad * self.fs) / (2.0 * consts::PI) }
+	pub fn carrier_phase_rad(&self) -> f64 { self.carrier.arg() }
+	pub fn code_phase_samples(&self) -> f64 { self.code_phase }
 
 	fn cn0_and_tracking_lock_status(&mut self) -> bool {
 		if self.prompt_buffer.len() < 20 { true } else {
@@ -95,13 +99,12 @@ impl Tracking {
 	}
 
 	fn carrier_wipe(&mut self, xin:&Vec<Complex<f64>>) -> Vec<Complex<f64>> {
-		let phase_inc:Complex<f64> = Complex{ re: self.carrier_dphase_rad.cos(), im: -self.carrier_dphase_rad.sin() };
 		let mut ans:Vec<Complex<f64>> = vec![];
 		for x in xin {
-			self.carrier_phase = self.carrier_phase * phase_inc;
-			ans.push(x * self.carrier_phase);
+			self.carrier = self.carrier * self.carrier_inc;
+			ans.push(x * self.carrier);
 		}
-		self.carrier_phase = self.carrier_phase / self.carrier_phase.norm();
+		self.carrier = self.carrier / self.carrier.norm();
 
 		ans
 	}
@@ -137,6 +140,7 @@ impl Tracking {
 			// Update carrier tracking
 			let carrier_error = if prompt.re == 0.0 { 0.0 } else { (prompt.im / prompt.re).atan() / self.fs };
 			self.carrier_dphase_rad += self.carrier_filter.apply(carrier_error);
+			self.carrier_inc = Complex{ re: self.carrier_dphase_rad.cos(), im: -self.carrier_dphase_rad.sin() };
 	
 			let code_error = {
 				let e:f64 = early.norm();
@@ -202,14 +206,10 @@ impl Tracking {
 		
 	}
 
-	pub fn carrier_freq_hz(&self) -> f64 { (self.carrier_dphase_rad * self.fs) / (2.0 * consts::PI) }
-	pub fn carrier_phase_rad(&self) -> f64 { self.carrier_phase.arg() }
-	pub fn code_phase_samples(&self) -> f64 { self.code_phase }
-
 	pub fn initialize(&mut self, acq_freq_hz:f64) {
 
 		let acq_carrier_rad_per_sec = acq_freq_hz * 2.0 * consts::PI;
-		self.carrier_phase      = Complex{ re: 1.0, im: 0.0};
+		self.carrier            = Complex{ re: 1.0, im: 0.0};
 		self.carrier_dphase_rad = acq_carrier_rad_per_sec / self.fs;
 
 		let radial_velocity_factor:f64 = (1.57542e9 + acq_freq_hz) / 1.57542e9;
@@ -237,8 +237,9 @@ pub fn new_default_tracker(prn:usize, acq_freq_hz:f64, fs:f64, bw_pll_hz:f64, bw
 	let local_code: Vec<Complex<f64>> = l1_ca_signal::prn_complex(prn);
 
 	let acq_carrier_rad_per_sec = acq_freq_hz * 2.0 * consts::PI;
-	let carrier_phase:Complex<f64> = Complex{ re: 1.0, im: 0.0};
 	let carrier_dphase_rad:f64 = acq_carrier_rad_per_sec / fs;
+	let carrier     = Complex{ re: 1.0, im: 0.0};
+	let carrier_inc = Complex{ re: carrier_dphase_rad.cos(), im: -carrier_dphase_rad.sin() };
 
 	let radial_velocity_factor:f64 = (1.57542e9 + acq_freq_hz) / 1.57542e9;
 	let code_phase = 0.0;
@@ -258,7 +259,8 @@ pub fn new_default_tracker(prn:usize, acq_freq_hz:f64, fs:f64, bw_pll_hz:f64, bw
 
 	let sample_buffer = vec![];
 
-	Tracking { carrier_phase, carrier_dphase_rad, code_phase, code_dphase,
+	Tracking { carrier, carrier_inc, carrier_dphase_rad, 
+		code_phase, code_dphase,
 		carrier_filter, code_filter,
 		lock_fail_count: 0, lock_fail_limit: 50, 
 		sample_buffer, 

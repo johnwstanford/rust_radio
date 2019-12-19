@@ -13,8 +13,6 @@ use ::DigSigProcErr;
 
 mod lock_detectors;
 
-type Sample = (Complex<f64>, usize);
-
 pub struct Tracking {
 	carrier: Complex<f64>,
 	carrier_inc: Complex<f64>,
@@ -26,7 +24,7 @@ pub struct Tracking {
 	code_filter: filters::SecondOrderFIR,
 	lock_fail_count: usize,
 	lock_fail_limit: usize,
-	sample_buffer: Vec<Sample>,
+	sample_buffer: Vec<Complex<f64>>,
 	prompt_buffer: VecDeque<(Complex<f64>, usize)>,
 	state: TrackingState,
 	pub fs:f64,								// immutable
@@ -76,31 +74,11 @@ impl Tracking {
 		}
 	}
 
-	/// Checks to see if the buffer currently contains enough samples to produce the next symbol.  If so, returns Some with a tuple
-	/// containing the complex samples and the index of the last one.  If not, returns None.
-	fn next_prn(&mut self) -> Option<(Vec<Complex<f64>>, usize)> {
-		if self.sample_buffer.len() >= self.next_prn_length {
-			// We have enough samples to produce the next PRN
-			let this_prn:Vec<Complex<f64>> = self.sample_buffer.iter().map(|(c,_)| *c).collect();
-			let (_, last_idx) = self.sample_buffer.pop().unwrap();
-			self.sample_buffer.clear();
-
-			// Store the signal plus noise power for SNR calculations
-			self.last_signal_plus_noise_power = this_prn.iter().map(|c| c.norm().powi(2)).sum::<f64>() / (self.next_prn_length as f64);
-
-			Some((this_prn, last_idx)) 
-		} else {
-			// Not enough samples in the buffer to produce the next PRN
-			None
-		}
-	
-	}
-
-	fn do_correlation_step(&mut self, xin:&Vec<Complex<f64>>) -> (Complex<f64>, Complex<f64>, Complex<f64>) {
+	fn do_correlation_step(&mut self) -> (Complex<f64>, Complex<f64>, Complex<f64>) {
 		let mut early:Complex<f64>  = Complex{ re: 0.0, im: 0.0};
 		let mut prompt:Complex<f64> = Complex{ re: 0.0, im: 0.0};
 		let mut late:Complex<f64>   = Complex{ re: 0.0, im: 0.0};
-		for x in xin {
+		for x in &(self.sample_buffer) {
 			let early_idx:usize  = utils::wrap_floor(self.code_phase - 0.5, 0, 1022);
 			let prompt_idx:usize = utils::wrap_floor(self.code_phase      , 0, 1022);
 			let late_idx:usize   = utils::wrap_floor(self.code_phase + 0.5, 0, 1022);
@@ -115,20 +93,23 @@ impl Tracking {
 
 	// Public interface
 	/// Takes a sample in the form of a tuple of the complex sample itself and the sample number.  Returns a TrackingResult.
-	pub fn apply(&mut self, sample:Sample) -> TrackingResult {
+	pub fn apply(&mut self, sample:(Complex<f64>, usize)) -> TrackingResult {
 		// Start by adding the new sample to the sample buffer, after removing the carrier
 		self.carrier = self.carrier * self.carrier_inc;
-		self.sample_buffer.push((sample.0 * self.carrier, sample.1));
+		self.sample_buffer.push(sample.0 * self.carrier);
 
 		// If there's a new prompt value available, do correlation on it and add it to the prompt buffer
-		if let Some((prn, prn_idx)) = self.next_prn() {
-			let (early, prompt, late) = self.do_correlation_step(&prn);
+		if self.sample_buffer.len() >= self.next_prn_length {
+			let (early, prompt, late) = self.do_correlation_step();
+			self.last_signal_plus_noise_power = self.sample_buffer.iter().map(|c| c.re*c.re + c.im*c.im).sum::<f64>() / (self.next_prn_length as f64);
+			self.sample_buffer.clear();
 
 			// Update carrier tracking
 			let carrier_error = if prompt.re == 0.0 { 0.0 } else { (prompt.im / prompt.re).atan() / self.fs };
 			self.carrier_dphase_rad += self.carrier_filter.apply(carrier_error);
 			self.carrier_inc = Complex{ re: self.carrier_dphase_rad.cos(), im: -self.carrier_dphase_rad.sin() };
 	
+			// Update code tracking
 			let code_error = {
 				let e:f64 = early.norm();
 				let l:f64 = late.norm();
@@ -138,7 +119,7 @@ impl Tracking {
 			self.next_prn_length = ((1023.0 / self.code_dphase) - self.code_phase).floor() as usize;
 
 			// Add this prompt value to the buffer
-			self.prompt_buffer.push_back((prompt, prn_idx))
+			self.prompt_buffer.push_back((prompt, sample.1))
 		}
 
 		// Match on the current state.

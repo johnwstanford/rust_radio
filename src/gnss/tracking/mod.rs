@@ -18,7 +18,7 @@ pub struct Tracking {
 	carrier_dphase_rad: f64,
 	code_phase: f64,
 	code_dphase: f64,
-	next_prn_length: usize,
+	idx_next_prompt: usize,
 	carrier_filter: filters::SecondOrderFIR,
 	code_filter: filters::SecondOrderFIR,
 	lock_fail_count: usize,
@@ -103,9 +103,9 @@ impl Tracking {
 		self.sample_buffer.push(sample.0 * self.carrier);
 
 		// If there's a new prompt value available, do correlation on it and add it to the prompt buffer
-		if self.sample_buffer.len() >= self.next_prn_length {
+		if sample.1 >= self.idx_next_prompt {
 			self.do_correlation_step();
-			self.last_signal_plus_noise_power = self.sample_buffer.iter().map(|c| c.re*c.re + c.im*c.im).sum::<f64>() / (self.next_prn_length as f64);
+			self.last_signal_plus_noise_power = self.sample_buffer.iter().map(|c| c.re*c.re + c.im*c.im).sum::<f64>() / ((1023.0 / self.code_dphase) - self.code_phase);
 			self.sample_buffer.clear();
 
 			// Update carrier tracking
@@ -120,7 +120,7 @@ impl Tracking {
 				if l+e == 0.0 { 0.0 } else { 0.5 * (l-e) / (l+e) }
 			};
 			self.code_dphase += self.code_filter.apply(code_error / self.fs);
-			self.next_prn_length = ((1023.0 / self.code_dphase) - self.code_phase).floor() as usize;
+			self.idx_next_prompt = sample.1 + ((1023.0 / self.code_dphase) - self.code_phase).floor() as usize;
 
 			// Add this prompt value to the buffer
 			self.prompt_buffer.push_back(self.sum_prompt);
@@ -226,7 +226,7 @@ pub fn new_default_tracker(prn:usize, acq_freq_hz:f64, fs:f64, bw_pll_hz:f64, bw
 	let radial_velocity_factor:f64 = (1.57542e9 + acq_freq_hz) / 1.57542e9;
 	let code_phase      = 0.0;
 	let code_dphase     = (radial_velocity_factor * 1.023e6) / fs;
-	let next_prn_length = (1023.0 / code_dphase).floor() as usize;
+	let idx_next_prompt = (1023.0 / code_dphase).floor() as usize;
 
 	let zeta = 0.7;
 	let pdi = 0.001;
@@ -243,7 +243,7 @@ pub fn new_default_tracker(prn:usize, acq_freq_hz:f64, fs:f64, bw_pll_hz:f64, bw
 	let sample_buffer = vec![];
 
 	Tracking { carrier, carrier_inc, carrier_dphase_rad, 
-		code_phase, code_dphase, next_prn_length,
+		code_phase, code_dphase, idx_next_prompt,
 		carrier_filter, code_filter,
 		lock_fail_count: 0, lock_fail_limit: 50, 
 		sum_early: Complex{re: 0.0, im: 0.0}, sum_prompt: Complex{re: 0.0, im: 0.0}, sum_late: Complex{re: 0.0, im: 0.0}, 

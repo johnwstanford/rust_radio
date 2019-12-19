@@ -74,27 +74,6 @@ impl Tracking {
 		(self.last_carrier_lock_test >= self.threshold_carrier_lock_test) && (self.last_cn0_snv_db_hz >= self.threshold_cn0_snv_db_hz)
 	}
 
-	fn do_correlation_step(&mut self) {
-		for x in &(self.sample_buffer) {
-
-		    let mut idx:f64 = self.code_phase - 0.5;
-		    while idx.floor() < 0.0    { idx += 1022.0; }
-		    while idx.floor() > 1022.0 { idx -= 1022.0; }
-		    self.sum_early  += self.local_code[idx.floor() as usize] * x;
-
-		    idx += 0.5;
-		    if idx.floor() > 1022.0 { idx -= 1022.0; }
-		    self.sum_prompt += self.local_code[idx.floor() as usize] * x;
-			
-		    idx += 0.5;
-		    if idx.floor() > 1022.0 { idx -= 1022.0; }
-		    self.sum_late   += self.local_code[idx.floor() as usize] * x;			
-			
-			self.code_phase += self.code_dphase;
-		}
-		while self.code_phase > 511.5 { self.code_phase -= 1023.0; }
-	}
-
 	// Public interface
 	/// Takes a sample in the form of a tuple of the complex sample itself and the sample number.  Returns a TrackingResult.
 	pub fn apply(&mut self, sample:(Complex<f64>, usize)) -> TrackingResult {
@@ -104,7 +83,24 @@ impl Tracking {
 
 		// If there's a new prompt value available, do correlation on it and add it to the prompt buffer
 		if sample.1 >= self.idx_next_prompt {
-			self.do_correlation_step();
+			for x in &(self.sample_buffer) {
+
+			    let mut idx:f64 = self.code_phase - 0.5;
+			    while idx.floor() < 0.0    { idx += 1022.0; }
+			    while idx.floor() > 1022.0 { idx -= 1022.0; }
+			    self.sum_early  += self.local_code[idx.floor() as usize] * x;
+
+			    idx += 0.5;
+			    if idx.floor() > 1022.0 { idx -= 1022.0; }
+			    self.sum_prompt += self.local_code[idx.floor() as usize] * x;
+				
+			    idx += 0.5;
+			    if idx.floor() > 1022.0 { idx -= 1022.0; }
+			    self.sum_late   += self.local_code[idx.floor() as usize] * x;			
+				
+				self.code_phase += self.code_dphase;
+			}
+			while self.code_phase > 511.5 { self.code_phase -= 1023.0; }
 			self.last_signal_plus_noise_power = self.sample_buffer.iter().map(|c| c.re*c.re + c.im*c.im).sum::<f64>() / ((1023.0 / self.code_dphase) - self.code_phase);
 			self.sample_buffer.clear();
 

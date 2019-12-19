@@ -25,9 +25,9 @@ pub struct Tracking {
 	lock_fail_count: usize,
 	lock_fail_limit: usize,
 	sample_buffer: Vec<Complex<f64>>,
-	prompt_buffer: VecDeque<(Complex<f64>, usize)>,
+	prompt_buffer: VecDeque<Complex<f64>>,
 	state: TrackingState,
-	pub fs:f64,								// immutable
+	pub fs:f64,
 	pub local_code:Vec<Complex<f64>>,
 	pub threshold_carrier_lock_test:f64,
 	pub threshold_cn0_snv_db_hz:f64,
@@ -67,11 +67,9 @@ impl Tracking {
 	pub fn code_phase_samples(&self) -> f64 { self.code_phase }
 
 	fn cn0_and_tracking_lock_status(&mut self) -> bool {
-		if self.prompt_buffer.len() < 20 { true } else {
-			self.last_cn0_snv_db_hz = lock_detectors::cn0_svn_estimator(&self.prompt_buffer, 0.001);
-			self.last_carrier_lock_test = lock_detectors::carrier_lock_detector(&self.prompt_buffer);
-			(self.last_carrier_lock_test >= self.threshold_carrier_lock_test) && (self.last_cn0_snv_db_hz >= self.threshold_cn0_snv_db_hz)
-		}
+		self.last_cn0_snv_db_hz = lock_detectors::cn0_svn_estimator(&self.prompt_buffer, 0.001);
+		self.last_carrier_lock_test = lock_detectors::carrier_lock_detector(&self.prompt_buffer);
+		(self.last_carrier_lock_test >= self.threshold_carrier_lock_test) && (self.last_cn0_snv_db_hz >= self.threshold_cn0_snv_db_hz)
 	}
 
 	fn do_correlation_step(&mut self) -> (Complex<f64>, Complex<f64>, Complex<f64>) {
@@ -119,7 +117,7 @@ impl Tracking {
 			self.next_prn_length = ((1023.0 / self.code_dphase) - self.code_phase).floor() as usize;
 
 			// Add this prompt value to the buffer
-			self.prompt_buffer.push_back((prompt, sample.1))
+			self.prompt_buffer.push_back(prompt)
 		}
 
 		// Match on the current state.
@@ -129,20 +127,20 @@ impl Tracking {
 				// TODO: make this a variable
 				while self.prompt_buffer.len() > 20 { self.prompt_buffer.pop_front(); }
 				
-				if self.cn0_and_tracking_lock_status() { 
+				if self.prompt_buffer.len() >= 20 && self.cn0_and_tracking_lock_status() { 
 					self.state = TrackingState::WaitingForFirstTransition;
 				}
 				TrackingResult::NotReady
 			},
 			TrackingState::WaitingForFirstTransition => {
 				let (found_transition, back_pos) = match (self.prompt_buffer.front(), self.prompt_buffer.back()) {
-					(Some((front, _)), Some((back, _))) => ((front.re > 0.0) != (back.re > 0.0), back.re > 0.0),
+					(Some(front), Some(back)) => ((front.re > 0.0) != (back.re > 0.0), back.re > 0.0),
 					(_, _) => (false, false)
 				};
 
 				if found_transition {
 					// We've found the first transition, get rid of everything before the transition
-					self.prompt_buffer.retain(|(c, _)| (c.re > 0.0) == back_pos);
+					self.prompt_buffer.retain(|c| (c.re > 0.0) == back_pos);
 
 					if self.prompt_buffer.len() > 0 {
 						self.state = TrackingState::Tracking;
@@ -155,7 +153,7 @@ impl Tracking {
 			},
 			TrackingState::Tracking => {
 				if self.prompt_buffer.len() >= 20 { 
-					// Normalize the carrier at the end of every PRN symbol, every 1 ms
+					// Normalize the carrier at the end of every bit, which is every 20 ms
 					self.carrier = self.carrier / self.carrier.norm();
 
 					// Check the quality of the lock
@@ -167,11 +165,10 @@ impl Tracking {
 						TrackingResult::Err(DigSigProcErr::LossOfLock) 
 					} else {
 						// We have enough prompts to build a bit
-						let last_idx:usize = self.prompt_buffer.back().unwrap().1;
-						let this_bit_re:f64 = self.prompt_buffer.drain(..20).map(|(c, _)| c.re).fold(0.0, |a,b| a+b);
+						let this_bit_re:f64 = self.prompt_buffer.drain(..20).map(|c| c.re).fold(0.0, |a,b| a+b);
 						self.last_signal_power = (this_bit_re / (self.fs / 50.0)).powi(2);
 
-						TrackingResult::Ok{ prompt_i:this_bit_re, bit_idx: last_idx} 
+						TrackingResult::Ok{ prompt_i:this_bit_re, bit_idx: sample.1} 
 					}
 				} else { TrackingResult::NotReady }
 

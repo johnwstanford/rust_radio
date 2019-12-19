@@ -1,17 +1,6 @@
 
 pub mod kinematics;
 
-pub fn wrap_floor(x:f64, lower_limit:usize, upper_limit:usize) -> usize {
-    let upper_f64:f64 = upper_limit as f64;
-    let lower_f64:f64 = lower_limit as f64;
-    let wrap_range:f64 = upper_f64 - lower_f64;
-    
-    let mut x_ans:f64 = x;
-    while x_ans.floor() < lower_f64 { x_ans += wrap_range; }
-    while x_ans.floor() > upper_f64 { x_ans -= wrap_range; }
-    x_ans.floor() as usize
-}
-
 pub fn bool_slice_to_byte_vec(x:&[bool]) -> Vec<u8> {
     assert!(x.len()%8 == 0);    // TODO: consider adding options for padding later
     let mut ans:Vec<u8> = vec![];

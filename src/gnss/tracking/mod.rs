@@ -8,7 +8,6 @@ use self::rustfft::num_complex::Complex;
 
 use ::filters;
 use ::gnss::gps::l1_ca_signal;
-use ::utils;
 use ::DigSigProcErr;
 
 mod lock_detectors;
@@ -77,13 +76,21 @@ impl Tracking {
 		let mut prompt:Complex<f64> = Complex{ re: 0.0, im: 0.0};
 		let mut late:Complex<f64>   = Complex{ re: 0.0, im: 0.0};
 		for x in &(self.sample_buffer) {
-			let early_idx:usize  = utils::wrap_floor(self.code_phase - 0.5, 0, 1022);
-			let prompt_idx:usize = utils::wrap_floor(self.code_phase      , 0, 1022);
-			let late_idx:usize   = utils::wrap_floor(self.code_phase + 0.5, 0, 1022);
+
+		    let mut idx:f64 = self.code_phase - 0.5;
+		    while idx.floor() < 0.0    { idx += 1022.0; }
+		    while idx.floor() > 1022.0 { idx -= 1022.0; }
+		    early  += self.local_code[idx.floor() as usize] * x;
+
+		    idx += 0.5;
+		    if idx.floor() > 1022.0 { idx -= 1022.0; }
+		    prompt += self.local_code[idx.floor() as usize] * x;
+			
+		    idx += 0.5;
+		    if idx.floor() > 1022.0 { idx -= 1022.0; }
+		    late   += self.local_code[idx.floor() as usize] * x;			
+			
 			self.code_phase += self.code_dphase;
-		    early  += self.local_code[early_idx]  * x;
-		    prompt += self.local_code[prompt_idx] * x;
-		    late   += self.local_code[late_idx]   * x;			
 		}
 		while self.code_phase > 511.5 { self.code_phase -= 1023.0; }
 		(early, prompt, late)

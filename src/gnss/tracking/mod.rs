@@ -23,6 +23,9 @@ pub struct Tracking {
 	code_filter: filters::SecondOrderFIR,
 	lock_fail_count: usize,
 	lock_fail_limit: usize,
+	sum_early:  Complex<f64>,
+	sum_prompt: Complex<f64>,
+	sum_late:   Complex<f64>,
 	sample_buffer: Vec<Complex<f64>>,
 	prompt_buffer: VecDeque<Complex<f64>>,
 	state: TrackingState,
@@ -71,29 +74,25 @@ impl Tracking {
 		(self.last_carrier_lock_test >= self.threshold_carrier_lock_test) && (self.last_cn0_snv_db_hz >= self.threshold_cn0_snv_db_hz)
 	}
 
-	fn do_correlation_step(&mut self) -> (Complex<f64>, Complex<f64>, Complex<f64>) {
-		let mut early:Complex<f64>  = Complex{ re: 0.0, im: 0.0};
-		let mut prompt:Complex<f64> = Complex{ re: 0.0, im: 0.0};
-		let mut late:Complex<f64>   = Complex{ re: 0.0, im: 0.0};
+	fn do_correlation_step(&mut self) {
 		for x in &(self.sample_buffer) {
 
 		    let mut idx:f64 = self.code_phase - 0.5;
 		    while idx.floor() < 0.0    { idx += 1022.0; }
 		    while idx.floor() > 1022.0 { idx -= 1022.0; }
-		    early  += self.local_code[idx.floor() as usize] * x;
+		    self.sum_early  += self.local_code[idx.floor() as usize] * x;
 
 		    idx += 0.5;
 		    if idx.floor() > 1022.0 { idx -= 1022.0; }
-		    prompt += self.local_code[idx.floor() as usize] * x;
+		    self.sum_prompt += self.local_code[idx.floor() as usize] * x;
 			
 		    idx += 0.5;
 		    if idx.floor() > 1022.0 { idx -= 1022.0; }
-		    late   += self.local_code[idx.floor() as usize] * x;			
+		    self.sum_late   += self.local_code[idx.floor() as usize] * x;			
 			
 			self.code_phase += self.code_dphase;
 		}
 		while self.code_phase > 511.5 { self.code_phase -= 1023.0; }
-		(early, prompt, late)
 	}
 
 	// Public interface
@@ -105,26 +104,31 @@ impl Tracking {
 
 		// If there's a new prompt value available, do correlation on it and add it to the prompt buffer
 		if self.sample_buffer.len() >= self.next_prn_length {
-			let (early, prompt, late) = self.do_correlation_step();
+			self.do_correlation_step();
 			self.last_signal_plus_noise_power = self.sample_buffer.iter().map(|c| c.re*c.re + c.im*c.im).sum::<f64>() / (self.next_prn_length as f64);
 			self.sample_buffer.clear();
 
 			// Update carrier tracking
-			let carrier_error = if prompt.re == 0.0 { 0.0 } else { (prompt.im / prompt.re).atan() / self.fs };
+			let carrier_error = if self.sum_prompt.re == 0.0 { 0.0 } else { (self.sum_prompt.im / self.sum_prompt.re).atan() / self.fs };
 			self.carrier_dphase_rad += self.carrier_filter.apply(carrier_error);
 			self.carrier_inc = Complex{ re: self.carrier_dphase_rad.cos(), im: -self.carrier_dphase_rad.sin() };
 	
 			// Update code tracking
 			let code_error = {
-				let e:f64 = early.norm();
-				let l:f64 = late.norm();
+				let e:f64 = self.sum_early.norm();
+				let l:f64 = self.sum_late.norm();
 				if l+e == 0.0 { 0.0 } else { 0.5 * (l-e) / (l+e) }
 			};
 			self.code_dphase += self.code_filter.apply(code_error / self.fs);
 			self.next_prn_length = ((1023.0 / self.code_dphase) - self.code_phase).floor() as usize;
 
 			// Add this prompt value to the buffer
-			self.prompt_buffer.push_back(prompt)
+			self.prompt_buffer.push_back(self.sum_prompt);
+
+			// Reset the sum accumulators for the next prompt
+			self.sum_early  = Complex{ re: 0.0, im: 0.0};
+			self.sum_prompt = Complex{ re: 0.0, im: 0.0};
+			self.sum_late   = Complex{ re: 0.0, im: 0.0};
 		}
 
 		// Match on the current state.
@@ -242,6 +246,7 @@ pub fn new_default_tracker(prn:usize, acq_freq_hz:f64, fs:f64, bw_pll_hz:f64, bw
 		code_phase, code_dphase, next_prn_length,
 		carrier_filter, code_filter,
 		lock_fail_count: 0, lock_fail_limit: 50, 
+		sum_early: Complex{re: 0.0, im: 0.0}, sum_prompt: Complex{re: 0.0, im: 0.0}, sum_late: Complex{re: 0.0, im: 0.0}, 
 		sample_buffer, 
 		prompt_buffer: VecDeque::new(), 
 		state: TrackingState::WaitingForInitialLockStatus,

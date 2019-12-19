@@ -98,23 +98,11 @@ impl Tracking {
 	
 	}
 
-	fn carrier_wipe(&mut self, xin:&Vec<Complex<f64>>) -> Vec<Complex<f64>> {
-		let mut ans:Vec<Complex<f64>> = vec![];
-		for x in xin {
-			self.carrier = self.carrier * self.carrier_inc;
-			ans.push(x * self.carrier);
-		}
-		self.carrier = self.carrier / self.carrier.norm();
-
-		ans
-	}
-
 	fn do_correlation_step(&mut self, xin:&Vec<Complex<f64>>) -> (Complex<f64>, Complex<f64>, Complex<f64>) {
-		let carrier_wiped = self.carrier_wipe(xin);
 		let mut early:Complex<f64>  = Complex{ re: 0.0, im: 0.0};
 		let mut prompt:Complex<f64> = Complex{ re: 0.0, im: 0.0};
 		let mut late:Complex<f64>   = Complex{ re: 0.0, im: 0.0};
-		for x in carrier_wiped {
+		for x in xin {
 			let early_idx:usize  = utils::wrap_floor(self.code_phase - 0.5, 0, 1022);
 			let prompt_idx:usize = utils::wrap_floor(self.code_phase      , 0, 1022);
 			let late_idx:usize   = utils::wrap_floor(self.code_phase + 0.5, 0, 1022);
@@ -130,8 +118,9 @@ impl Tracking {
 	// Public interface
 	/// Takes a sample in the form of a tuple of the complex sample itself and the sample number.  Returns a TrackingResult.
 	pub fn apply(&mut self, sample:Sample) -> TrackingResult {
-		// Start by adding the new sample to the sample buffer
-		self.sample_buffer.push(sample);
+		// Start by adding the new sample to the sample buffer, after removing the carrier
+		self.carrier = self.carrier * self.carrier_inc;
+		self.sample_buffer.push((sample.0 * self.carrier, sample.1));
 
 		// If there's a new prompt value available, do correlation on it and add it to the prompt buffer
 		if let Some((prn, prn_idx)) = self.next_prn() {
@@ -186,9 +175,14 @@ impl Tracking {
 			},
 			TrackingState::Tracking => {
 				if self.prompt_buffer.len() >= 20 { 
+					// Normalize the carrier at the end of every PRN symbol, every 1 ms
+					self.carrier = self.carrier / self.carrier.norm();
+
+					// Check the quality of the lock
 					if !self.cn0_and_tracking_lock_status() { self.lock_fail_count += 1; }
 					else if self.lock_fail_count > 0 { self.lock_fail_count -= 1; }
 
+					// Either return an error or the next bit
 					if self.lock_fail_count > self.lock_fail_limit { 
 						TrackingResult::Err(DigSigProcErr::LossOfLock) 
 					} else {

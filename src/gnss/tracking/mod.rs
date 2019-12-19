@@ -21,6 +21,7 @@ pub struct Tracking {
 	carrier_dphase_rad: f64,
 	code_phase: f64,
 	code_dphase: f64,
+	next_prn_length: usize,
 	carrier_filter: filters::SecondOrderFIR,
 	code_filter: filters::SecondOrderFIR,
 	lock_fail_count: usize,
@@ -75,20 +76,17 @@ impl Tracking {
 		}
 	}
 
-	fn next_prn_length(&self) -> usize { ((1023.0 / self.code_dphase) - self.code_phase).floor() as usize }
-
 	/// Checks to see if the buffer currently contains enough samples to produce the next symbol.  If so, returns Some with a tuple
 	/// containing the complex samples and the index of the last one.  If not, returns None.
 	fn next_prn(&mut self) -> Option<(Vec<Complex<f64>>, usize)> {
-		let next_len:usize = self.next_prn_length();
-		if self.sample_buffer.len() >= next_len {
+		if self.sample_buffer.len() >= self.next_prn_length {
 			// We have enough samples to produce the next PRN
 			let this_prn:Vec<Complex<f64>> = self.sample_buffer.iter().map(|(c,_)| *c).collect();
 			let (_, last_idx) = self.sample_buffer.pop().unwrap();
 			self.sample_buffer.clear();
 
 			// Store the signal plus noise power for SNR calculations
-			self.last_signal_plus_noise_power = this_prn.iter().map(|c| c.norm().powi(2)).sum::<f64>() / (next_len as f64);
+			self.last_signal_plus_noise_power = this_prn.iter().map(|c| c.norm().powi(2)).sum::<f64>() / (self.next_prn_length as f64);
 
 			Some((this_prn, last_idx)) 
 		} else {
@@ -137,6 +135,7 @@ impl Tracking {
 				if l+e == 0.0 { 0.0 } else { 0.5 * (l-e) / (l+e) }
 			};
 			self.code_dphase += self.code_filter.apply(code_error / self.fs);
+			self.next_prn_length = ((1023.0 / self.code_dphase) - self.code_phase).floor() as usize;
 
 			// Add this prompt value to the buffer
 			self.prompt_buffer.push_back((prompt, prn_idx))
@@ -236,8 +235,9 @@ pub fn new_default_tracker(prn:usize, acq_freq_hz:f64, fs:f64, bw_pll_hz:f64, bw
 	let carrier_inc = Complex{ re: carrier_dphase_rad.cos(), im: -carrier_dphase_rad.sin() };
 
 	let radial_velocity_factor:f64 = (1.57542e9 + acq_freq_hz) / 1.57542e9;
-	let code_phase = 0.0;
-	let code_dphase = (radial_velocity_factor * 1.023e6) / fs;
+	let code_phase      = 0.0;
+	let code_dphase     = (radial_velocity_factor * 1.023e6) / fs;
+	let next_prn_length = (1023.0 / code_dphase).floor() as usize;
 
 	let zeta = 0.7;
 	let pdi = 0.001;
@@ -254,7 +254,7 @@ pub fn new_default_tracker(prn:usize, acq_freq_hz:f64, fs:f64, bw_pll_hz:f64, bw
 	let sample_buffer = vec![];
 
 	Tracking { carrier, carrier_inc, carrier_dphase_rad, 
-		code_phase, code_dphase,
+		code_phase, code_dphase, next_prn_length,
 		carrier_filter, code_filter,
 		lock_fail_count: 0, lock_fail_limit: 50, 
 		sample_buffer, 

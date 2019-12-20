@@ -112,8 +112,6 @@ impl Tracking {
 			self.prompt_buffer.push_back(self.sum_prompt);
 
 			// Reset the sum accumulators for the next prompt
-			self.last_coh_total_power = self.sum_prompt.norm_sqr();
-			self.last_coh_noise_power = 2.0 * self.sum_prompt.im.powi(2);
 			self.sum_early  = Complex{ re: 0.0, im: 0.0};
 			self.sum_prompt = Complex{ re: 0.0, im: 0.0};
 			self.sum_late   = Complex{ re: 0.0, im: 0.0};
@@ -152,6 +150,10 @@ impl Tracking {
 			},
 			TrackingState::Tracking => {
 				if self.prompt_buffer.len() >= 20 { 
+					// Save coherent SNR components
+					self.last_coh_total_power = (&self.prompt_buffer).into_iter().map(|x| x.norm_sqr()).sum();
+					self.last_coh_noise_power = (&self.prompt_buffer).into_iter().map(|x| 2.0 * x.im.powi(2)).sum();
+
 					// Normalize the carrier at the end of every bit, which is every 20 ms
 					self.carrier = self.carrier / self.carrier.norm();
 

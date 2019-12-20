@@ -18,7 +18,7 @@ use rust_radio::utils::kinematics;
 use rustfft::num_complex::Complex;
 
 // TODO: make these configurable
-const NUM_ACTIVE_CHANNELS:usize = 7;
+const NUM_ACTIVE_CHANNELS:usize = 9;
 const WEEK_SEC:f64 = 3600.0 * 24.0 * 7.0;
 
 fn main() {

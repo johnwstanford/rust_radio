@@ -28,7 +28,7 @@ struct SubframeWithMetadata {
 	carrier_lock_test:f64,
 	acq_test_stat:f64,
 	prn:usize,
-	snr:f64,
+	snr_coh:f64,
 }
 
 fn main() {
@@ -76,7 +76,7 @@ fn main() {
 						carrier_lock_test: chn.last_carrier_lock_test(),
 						acq_test_stat:     chn.last_acq_test_stat(),
 						prn:               chn.prn,
-						snr:               chn.estimated_snr() };
+						snr_coh:           chn.estimated_snr_coh() };
 					all_results.push(sf_with_metadata);
 				},
 				channel::ChannelResult::Err(e) => eprintln!("{}", format!("PRN {}: Error due to {:?}", chn.prn, e).red()),

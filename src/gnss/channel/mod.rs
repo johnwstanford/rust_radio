@@ -40,9 +40,7 @@ impl<A: acquisition::Acquisition> Channel<A> {
 	pub fn carrier_freq_hz(&self) -> f64 { self.trk_tlm.carrier_freq_hz() }
 	pub fn last_cn0_snv_db_hz(&self) -> f64 { self.trk_tlm.last_cn0_snv_db_hz() }
 	pub fn last_carrier_lock_test(&self) -> f64 { self.trk_tlm.last_carrier_lock_test() }
-	pub fn last_signal_plus_noise_power(&self) -> f64 { self.trk_tlm.last_signal_plus_noise_power() }
-	pub fn last_signal_power(&self) -> f64 { self.trk_tlm.last_signal_power() }
-	pub fn estimated_snr(&self) -> f64 { self.trk_tlm.estimated_snr() }
+	pub fn estimated_snr_coh(&self) -> f64 { self.trk_tlm.estimated_snr_coh() }
 
 	pub fn last_acq_doppler(&self) -> f64 { self.trk_tlm.last_acq_doppler() }
 	pub fn last_acq_test_stat(&self) -> f64 { self.trk_tlm.last_acq_test_stat() }

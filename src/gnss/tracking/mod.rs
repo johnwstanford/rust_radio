@@ -33,8 +33,8 @@ pub struct Tracking {
 	pub threshold_cn0_snv_db_hz:f64,
 	last_cn0_snv_db_hz:f64,
 	last_carrier_lock_test:f64,
-	last_signal_plus_noise_power:f64,
-	last_signal_power:f64,
+	last_coh_total_power:f64,
+	last_coh_noise_power:f64,
 }
 
 #[derive(Debug)]
@@ -55,14 +55,10 @@ impl Tracking {
 
 	pub fn last_cn0_snv_db_hz(&self) -> f64 { self.last_cn0_snv_db_hz }
 	pub fn last_carrier_lock_test(&self) -> f64 { self.last_carrier_lock_test }
-	pub fn estimated_snr(&self) -> f64 {
-		if self.last_signal_power > 0.0 {
-			let avg_total_power = self.last_signal_plus_noise_power / ((1023.0 / self.code_dphase) - self.code_phase);
-			1.0 / ((avg_total_power / self.last_signal_power) - 1.0)
-		} else { 0.0 }
+	pub fn estimated_snr_coh(&self) -> f64 {
+		if self.last_coh_total_power > 0.0 { (self.last_coh_total_power / self.last_coh_noise_power) - 1.0 } 
+		else { 0.0 }
 	}
-	pub fn last_signal_plus_noise_power(&self) -> f64 { self.last_signal_plus_noise_power }
-	pub fn last_signal_power(&self) -> f64 { self.last_signal_power }
 	pub fn carrier_freq_hz(&self) -> f64 { (self.carrier_dphase_rad * self.fs) / (2.0 * consts::PI) }
 	pub fn carrier_phase_rad(&self) -> f64 { self.carrier.arg() }
 	pub fn code_phase_samples(&self) -> f64 { self.code_phase }
@@ -94,7 +90,6 @@ impl Tracking {
 	    self.sum_late   += self.local_code[idx.floor() as usize] * x;			
 		
 		self.code_phase += self.code_dphase;
-		self.last_signal_plus_noise_power += x.re*x.re + x.im*x.im;
 
 		// If there's a new prompt value available, do correlation on it and add it to the prompt buffer
 		if self.code_phase >= 1023.0 {
@@ -117,10 +112,11 @@ impl Tracking {
 			self.prompt_buffer.push_back(self.sum_prompt);
 
 			// Reset the sum accumulators for the next prompt
+			self.last_coh_total_power = self.sum_prompt.norm_sqr();
+			self.last_coh_noise_power = 2.0 * self.sum_prompt.im.powi(2);
 			self.sum_early  = Complex{ re: 0.0, im: 0.0};
 			self.sum_prompt = Complex{ re: 0.0, im: 0.0};
 			self.sum_late   = Complex{ re: 0.0, im: 0.0};
-			self.last_signal_plus_noise_power = 0.0;
 		}
 
 		// Match on the current state.
@@ -169,8 +165,6 @@ impl Tracking {
 					} else {
 						// We have enough prompts to build a bit
 						let this_bit_re:f64 = self.prompt_buffer.drain(..20).map(|c| c.re).fold(0.0, |a,b| a+b);
-						self.last_signal_power = (this_bit_re / (self.fs / 50.0)).powi(2);
-
 						TrackingResult::Ok{ prompt_i:this_bit_re, bit_idx: sample.1} 
 					}
 				} else { TrackingResult::NotReady }
@@ -241,6 +235,6 @@ pub fn new_default_tracker(prn:usize, acq_freq_hz:f64, fs:f64, bw_pll_hz:f64, bw
 		prompt_buffer: VecDeque::new(), 
 		state: TrackingState::WaitingForInitialLockStatus,
 		fs, local_code, threshold_carrier_lock_test: 0.8, threshold_cn0_snv_db_hz: 30.0,
-		last_cn0_snv_db_hz: 0.0, last_carrier_lock_test: 0.0, last_signal_plus_noise_power: 0.0, last_signal_power: 0.0,
+		last_cn0_snv_db_hz: 0.0, last_carrier_lock_test: 0.0, last_coh_total_power: 0.0, last_coh_noise_power: 0.0,
 	}		
 }

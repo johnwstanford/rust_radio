@@ -11,7 +11,8 @@ use self::itertools::Itertools;
 use self::serde::{Serialize, Deserialize};
 
 use ::DigSigProcErr;
-use ::gnss::{tracking, telemetry_decode};
+use ::gnss::gps_l1_ca::tracking;
+use ::gnss::telemetry_decode;
 use ::gnss::telemetry_decode::gps::l1_ca_subframe;
 use ::gnss::pvt;
 

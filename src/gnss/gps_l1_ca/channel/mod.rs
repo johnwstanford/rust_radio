@@ -7,7 +7,7 @@ extern crate serde;
 use self::rustfft::num_complex::Complex;
 
 use ::DigSigProcErr;
-use ::gnss::acquisition;
+use ::gnss::common::acquisition;
 use ::gnss::gps_l1_ca;
 use ::gnss::gps_l1_ca::{pvt, telemetry_decode::subframe::Subframe as SF};
 

@@ -13,7 +13,7 @@ use clap::{Arg, App};
 use colored::*;
 use na::Vector4;
 use rust_radio::io;
-use rust_radio::gnss::acquisition::fast_pcps;
+use rust_radio::gnss::common::acquisition::fast_pcps;
 use rust_radio::gnss::gps_l1_ca::{pvt, channel};
 use rust_radio::utils::kinematics;
 use rustfft::num_complex::Complex;

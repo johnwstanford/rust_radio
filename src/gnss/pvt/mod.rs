@@ -6,7 +6,7 @@ use self::serde::{Serialize, Deserialize};
 use self::na::base::{Matrix3, Matrix3x1, DMatrix, Vector3, Vector4, DVector, U3, U1};
 
 use ::utils::kinematics;
-use ::gnss::channel;
+use ::gnss::gps_l1_ca::channel;
 
 pub const MU:f64 = 3.986005e14;                  // [m^3/s^2] WGS-84 value of the earth's gravitational constant
 pub const OMEGA_DOT_E:f64 = 7.2921151467e-5;     // [rad/s] WGS-84 value of the earth's rotation rate

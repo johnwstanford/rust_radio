@@ -17,7 +17,8 @@ use colored::*;
 use regex::Regex;
 use rustfft::num_complex::Complex;
 use rust_radio::io;
-use rust_radio::gnss::{channel, pvt, acquisition::fast_pcps};
+use rust_radio::gnss::{pvt, acquisition::fast_pcps};
+use rust_radio::gnss::gps_l1_ca::channel;
 
 const NUM_ACTIVE_CHANNELS:usize = 7;
 

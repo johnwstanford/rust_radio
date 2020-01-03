@@ -12,8 +12,9 @@ use std::collections::VecDeque;
 use clap::{Arg, App};
 use colored::*;
 use rust_radio::io;
-use rust_radio::gnss::{channel, acquisition::fast_pcps};
+use rust_radio::gnss::acquisition::fast_pcps;
 use rust_radio::gnss::telemetry_decode::gps::l1_ca_subframe::Subframe as SF;
+use rust_radio::gnss::gps_l1_ca::channel;
 use rustfft::num_complex::Complex;
 use serde::{Serialize, Deserialize};
 

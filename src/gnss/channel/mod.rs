@@ -9,7 +9,7 @@ use self::rustfft::num_complex::Complex;
 use ::DigSigProcErr;
 use ::gnss::acquisition;
 use ::gnss::telemetry_decode::gps::l1_ca_subframe;
-use ::gnss::gps::l1_ca_signal;
+use ::gnss::gps_l1_ca;
 use ::gnss::pvt;
 
 pub const DEFAULT_DOPPLER_STEP_HZ:usize = 50;
@@ -83,7 +83,7 @@ pub fn new_default_channel<A: acquisition::Acquisition>(prn:usize, fs:f64) -> Ch
 }
 
 pub fn new_channel(prn:usize, fs:f64, test_stat:f64) -> Channel<acquisition::fast_pcps::Acquisition> {
-	let symbol:Vec<i8> = l1_ca_signal::prn_int_sampled(prn, fs);
+	let symbol:Vec<i8> = gps_l1_ca::signal_modulation::prn_int_sampled(prn, fs);
 	let acq = acquisition::make_acquisition(symbol, fs, prn, 9, 17, test_stat);
 	Channel::with_acq(prn, fs, acq)
 }

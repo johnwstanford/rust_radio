@@ -7,7 +7,7 @@ use std::f64::consts;
 use self::rustfft::num_complex::Complex;
 
 use ::filters;
-use ::gnss::gps::l1_ca_signal;
+use ::gnss::gps_l1_ca;
 use ::DigSigProcErr;
 
 mod lock_detectors;
@@ -206,7 +206,7 @@ impl Tracking {
 }
 
 pub fn new_default_tracker(prn:usize, acq_freq_hz:f64, fs:f64, bw_pll_hz:f64, bw_dll_hz:f64) -> Tracking {
-	let local_code: Vec<Complex<f64>> = l1_ca_signal::prn_complex(prn);
+	let local_code: Vec<Complex<f64>> = gps_l1_ca::signal_modulation::prn_complex(prn);
 
 	let acq_carrier_rad_per_sec = acq_freq_hz * 2.0 * consts::PI;
 	let carrier_dphase_rad:f64 = acq_carrier_rad_per_sec / fs;

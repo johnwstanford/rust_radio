@@ -11,10 +11,8 @@ use self::itertools::Itertools;
 use self::serde::{Serialize, Deserialize};
 
 use ::DigSigProcErr;
-use ::gnss::gps_l1_ca::tracking;
-use ::gnss::telemetry_decode;
-use ::gnss::telemetry_decode::gps::l1_ca_subframe;
-use ::gnss::pvt;
+use ::gnss::gps_l1_ca::{pvt, telemetry_decode, tracking};
+use ::gnss::gps_l1_ca::telemetry_decode::subframe;
 
 pub const DEFAULT_PLL_BW_HZ:f64 = 40.0;
 pub const DEFAULT_DLL_BW_HZ:f64 = 4.0;
@@ -24,7 +22,7 @@ pub const C_METERS_PER_MS:f64  = 2.99792458e5;    // [m/ms] speed of light
 const SYNCHRO_BUFFER_SIZE:usize = 100;
 
 type Sample = (Complex<f64>, usize);
-type SF = l1_ca_subframe::Subframe;
+type SF = subframe::Subframe;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum ChannelState {
@@ -60,7 +58,7 @@ pub struct Channel {
 	pub fs:f64,
 	state:ChannelState,
 	trk: tracking::Tracking,
-	tlm: telemetry_decode::gps::TelemetryDecoder,
+	tlm: telemetry_decode::TelemetryDecoder,
 	last_acq_doppler:f64,
 	last_acq_test_stat:f64,
 	last_sample_idx:usize,
@@ -121,7 +119,7 @@ impl Channel {
 
 						// See if a new subframe is available
 						let sf:Option<SF> = match self.tlm.apply((prompt_i > 0.0, bit_idx)) {
-							telemetry_decode::gps::TelemetryDecoderResult::Ok(sf, _, _) => {
+							telemetry_decode::TelemetryDecoderResult::Ok(sf, _, _) => {
 		
 								self.opt_tow_sec = Some(sf.time_of_week());
 
@@ -136,8 +134,8 @@ impl Channel {
 
 								Some(sf)
 							},
-							telemetry_decode::gps::TelemetryDecoderResult::NotReady => None,
-							telemetry_decode::gps::TelemetryDecoderResult::Err(_) => {
+							telemetry_decode::TelemetryDecoderResult::NotReady => None,
+							telemetry_decode::TelemetryDecoderResult::Err(_) => {
 								self.state = ChannelState::AwaitingAcquisition;
 								None
 							}
@@ -209,7 +207,7 @@ pub fn new_default_channel(prn:usize, fs:f64) -> Channel { new_channel(prn, fs) 
 pub fn new_channel(prn:usize, fs:f64) -> Channel {
 	let state = ChannelState::AwaitingAcquisition;
 	let trk = tracking::new_default_tracker(prn, 0.0, fs, DEFAULT_PLL_BW_HZ, DEFAULT_DLL_BW_HZ);
-	let tlm = telemetry_decode::gps::TelemetryDecoder::new();
+	let tlm = telemetry_decode::TelemetryDecoder::new();
 
 	Channel{ prn, fs, state, trk, tlm, last_acq_doppler:0.0, last_acq_test_stat: 0.0, last_sample_idx: 0, 
 		sf_buffer: VecDeque::new(), synchro_buffer: VecDeque::new(), calendar_and_ephemeris: None, opt_tow_sec: None }

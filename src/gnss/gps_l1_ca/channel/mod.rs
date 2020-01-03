@@ -8,16 +8,14 @@ use self::rustfft::num_complex::Complex;
 
 use ::DigSigProcErr;
 use ::gnss::acquisition;
-use ::gnss::telemetry_decode::gps::l1_ca_subframe;
 use ::gnss::gps_l1_ca;
-use ::gnss::pvt;
+use ::gnss::gps_l1_ca::{pvt, telemetry_decode::subframe::Subframe as SF};
 
 pub const DEFAULT_DOPPLER_STEP_HZ:usize = 50;
 pub const DEFAULT_DOPPLER_MAX_HZ:i16 = 10000;
 pub const DEFAULT_TEST_STAT_THRESHOLD:f64 = 0.01;
 
 type Sample = (Complex<f64>, usize);
-type SF = l1_ca_subframe::Subframe;
 
 #[derive(Debug)]
 pub enum ChannelResult {

@@ -16,7 +16,8 @@ const SUBFRAME_SIZE_W_PARITY_BITS:usize = 300;
 const SUBFRAME_SIZE_DATA_ONLY_BITS:usize = 240;
 
 mod preamble_detector;
-pub mod l1_ca_subframe;
+
+pub mod subframe;
 
 fn parity_check(word:&Vec<bool>, last_D29:bool, last_D30:bool) -> bool {
 	if word.len() != 30 { panic!("Word length must be 30 bits"); }
@@ -65,7 +66,7 @@ pub struct TelemetryDecoder {
 
 pub enum TelemetryDecoderResult {
 	NotReady,
-	Ok(l1_ca_subframe::Subframe, [bool; SUBFRAME_SIZE_DATA_ONLY_BITS], usize),
+	Ok(subframe::Subframe, [bool; SUBFRAME_SIZE_DATA_ONLY_BITS], usize),
 	Err(DigSigProcErr),
 }
 
@@ -130,7 +131,7 @@ impl TelemetryDecoder {
 					match data_recover(next_subframe) {
 						Ok(bits) => {
 							// If the bits passed the parity check, try to actually decode the data
-							match l1_ca_subframe::decode(bits) {
+							match subframe::decode(bits) {
 								Ok(sf) => TelemetryDecoderResult::Ok(sf, bits, last_idx),
 								Err(e) => TelemetryDecoderResult::Err(e)		
 							}

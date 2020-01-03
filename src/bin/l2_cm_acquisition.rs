@@ -30,8 +30,9 @@ struct SubframeWithMetadata {
 
 fn main() {
 
-	for x in signal_modulation::cm_code(2).iter() {
-		println!("{:?}", x);
+	for prn in 1..=32 {
+		let code = signal_modulation::cm_code(prn);
+		println!("{} {:?}", prn, code[10229]);
 	}
 
 	/*let matches = App::new("GPS L2 CM Acquisition")

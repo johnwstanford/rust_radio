@@ -23,14 +23,14 @@ struct AcquisitionRecord {
 	pub test_statistic:f64,
 }
 
-const L2_CM_PERIOD_SEC:f64 = 20.0e-3;
+const L2_CL_PERIOD_SEC:f64 = 1.5;
 
 fn main() {
 
 	let matches = App::new("GPS L2 CM Acquisition")
 		.version("0.1.0")
 		.author("John Stanford (johnwstanford@gmail.com)")
-		.about("Takes IQ samples centered on 1227.6 MHz and produces acquisition results for the L2 CM signal")
+		.about("Takes IQ samples centered on 1227.6 MHz and produces acquisition results for the L2 CL signal")
 		.arg(Arg::with_name("filename")
 			.short("f").long("filename")
 			.help("Input filename")
@@ -50,13 +50,13 @@ fn main() {
 	eprintln!("Decoding {} at {} [samples/sec]", &fname, &fs);
 
 	let mut acqs:Vec<fast_pcps::Acquisition> = (1..=32).map( |prn| {
-		let cm_code:[bool; 10230] = signal_modulation::cm_code(prn);
+		let cm_code:[bool; 767250] = signal_modulation::cl_code(prn);
 
 		// Convert bool to i8 and resample
-		let n_samples:usize = (fs * L2_CM_PERIOD_SEC as f64) as usize;		// [samples/sec] * [sec]
+		let n_samples:usize = (fs * L2_CL_PERIOD_SEC as f64) as usize;		// [samples/sec] * [sec]
 		let mut symbol:Vec<i8> = vec![];
 		for sample_idx in 0..n_samples {
-			let chip_idx_f64:f64 = sample_idx as f64 * (10230.0 / n_samples as f64);
+			let chip_idx_f64:f64 = sample_idx as f64 * (767250.0 / n_samples as f64);
 			if chip_idx_f64 - chip_idx_f64.floor() < 0.5 {
 				if cm_code[chip_idx_f64.floor() as usize] { symbol.push(1) } else { symbol.push(-1) }
 			} else {
@@ -64,7 +64,7 @@ fn main() {
 			}
 		}
 
-		acquisition::make_acquisition(symbol, fs, prn, 140, 12, 0.0)
+		acquisition::make_acquisition(symbol, fs, prn, 10500, 2, 0.0)
 
 	}).collect();
 
@@ -85,7 +85,7 @@ fn main() {
 			}
 		}
 
-		if all_records.len() >= 100 { break; }
+		if all_records.len() >= 40 { break; }
 
 	}
 

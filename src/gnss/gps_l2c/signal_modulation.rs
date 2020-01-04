@@ -1,39 +1,41 @@
 
+// Given in IS-GPS-200K, Table 3-IIa
 const CM_INITIAL_STATE:[[bool; 27]; 32] = [
-	[true,  true,  true,  true,  false, false, false, true,  false, true,  false, false, false, false, true,  true,  true,  true,  true,  true,  false, true,  true, false, true, false, false],		// PRN 01
-	[true,  true,  true,  true,  false, true,  true,  true,  false, false, false, false, false, false, true,  true,  false, false, false, false, false, false, true, true,  true, false, true ],		// PRN 02
-	[false, false, false, false, false, false, false, true,  false, true,  true,  true,  true,  false, false, true,  true,  true, false, false, true, true, false, false, true, false, false, ],	// PRN 03
-	[false, false, false, true,  true,  false, true,  true,  false, false, true,  false, true,  true,  false, true,  false, true, true, true, true, false, true, false, true, false, false, ],	// PRN 04
-	[true,  true,  false, false, false, false, false, false, true,  true,  false, false, false, false, false, false, true,  true, true, false, false, true, true, true, false, false, true, ],	// PRN 05
-	[true,  true,  true,  false, false, false, false, true,  true,  false, true,  false, false, true,  true,  false, true,  false, true, true, true, false, true, true, false, true, true, ],	// PRN 06
-	[false, false, true,  false, true,  false, true,  false, false, true,  false, true,  false, false, true,  false, false, false,  false, false, false,  true, true, true, false, false, false,  ],	// PRN 07
-	[true,  true,  false, false, false, true,  true,  true,  true,  false, true,  true,  false, false, true,  true,  true,  false, false, true, true, true, true, false, false, false, true, ],	// PRN 08
-	[false, false, false, true,  false, false, true,  true,  true,  true,  false, true,  true,  false, false, false, false, true, true, true, false, false, true, false, false, false, true, ],	// PRN 09
-	[true,  true,  true,  false, true,  true,  false, true,  true,  false, false, false, false, true,  true,  false, false, true, false, false, false,  true, false, false, true, true, false, ],	// PRN 10
-	[true,  true,  true,  false, false, true,  false, true,  true,  true,  false, true,  false, false, true,  false, true,  false, false, false, true, true, false, false, true, false, true, ],	// PRN 11
-	[false, false, false, false, true,  false, true,  false, false, true,  false, false, false, true,  true,  true,  true,  true, true, true, false, false, false, false,  true, true, false, ],	// PRN 12
-	[false, false, false, false, true,  false, false, false, true,  false, true,  false, true,  true,  false, true,  false, false, false, false, false,  false, false, false,  false, true, true, ],	// PRN 13
-	[false, true,  false, false, true,  true,  false, false, false, true,  true,  false, true,  false, true,  true,  false, true, false, true, true, true, false, true, false, false, true, ],	// PRN 14
-	[false, false, false, false, false, false, false, false, true,  false, true,  true,  false, false, true,  true,  false, false, true, false, false, false, false, false,  false, false, false,  ],	// PRN 15
-	[false, true,  false, false, true,  false, false, true,  false, false, false, false, false, true,  false, false, false, true, true, false, true, false, false, false,  true, true, false, ],	// PRN 16
-	[true,  false, true,  true,  false, false, false, false, false, false, true,  false, true,  true,  false, true,  false, false, false, false, false,  false, true, false, true, true, false, ],	// PRN 17
-	[false, true,  false, false, false, false, true,  false, true,  true,  false, true,  false, true,  false, false, false, true, true, true, true, false, false, false,  true, false, true, ],	// PRN 18
-	[false, false, false, true,  true,  false, true,  false, false, false, false, false, false, true,  false, false, true,  false, false, false, true, true, false, false, true, false, false, ],	// PRN 19
-	[false, false, true,  false, true,  false, false, false, false, false, false, true,  true,  true,  false, false, false, true, false, true, false, true, true, true, true, false, false, ],	// PRN 20
-	[false, false, false, true,  false, false, true,  false, false, false, false, false, false, true,  false, false, true,  true, true, false, true, false, true, true, false, true, true, ],	// PRN 21
-	[true,  true,  true,  false, true,  false, true,  false, false, true,  true,  true,  true,  false, false, true,  false, false, false, true, true, false, true, false, true, true, true, ],	// PRN 22
-	[false, false, false, true,  false, false, true,  false, true,  true,  true,  true,  true,  false, false, false, true,  true, true, false, true, true, true, true, true, true, true, ],	// PRN 23
-	[true,  true,  true,  true,  false, false, false, false, true,  false, true,  false, false, false, false, false, false, true, true, true, false, true, true, false, false, false, false,  ],	// PRN 24
-	[true,  true,  true,  false, false, false, false, false, false, false, true,  false, true,  true,  true,  true,  false, false, false, false, true, false, true, true, true, false, false, ],	// PRN 25
-	[false, false, false, false, false, true,  false, false, false, false, true,  false, true,  false, false, true,  true,  true, false, true, false, true, true, false, false, false, true, ],	// PRN 26
-	[true,  true,  true,  false, false, true,  false, true,  true,  true,  false, false, false, true,  true,  false, true,  true, true, false, false, true, false, false, true, false, true, ],	// PRN 27
-	[true,  true,  true,  false, true,  true,  true,  true,  true,  false, true,  true,  false, true,  false, true,  false, false, false, false, true, true, true, false, false, true, false, ],	// PRN 28
-	[false, true,  true,  false, false, true,  false, false, true,  true,  true,  false, false, true,  false, true,  true,  true, true, false, false, false, true, true, true, false, false, ],	// PRN 29
-	[true,  true,  true,  false, false, true,  false, false, false, true,  false, false, true,  false, true,  false, true,  false, false, false, false,  false, false, false,  true, true, true, ],	// PRN 30
-	[true,  true,  true,  false, true,  false, false, true,  false, true,  false, false, true,  true,  false, false, true,  false, false, false, true, false, true, true, false, true, true, ],	// PRN 31
-	[false, false, false, true,  false, true,  false, false, false, false, false, true,  true,  true,  true,  false, true,  false, false, true, false, false, false, true, false, true, true, ]		// PRN 32
+	[true,  true,  true,  true,  false, false, false, true,  false, true,  false, false, false, false, true,  true,  true,  true,  true,  true,  false, true,  true,  false, true,  false, false ],	// PRN 01
+	[true,  true,  true,  true,  false, true,  true,  true,  false, false, false, false, false, false, true,  true,  false, false, false, false, false, false, true,  true,  true,  false, true  ],	// PRN 02
+	[false, false, false, false, false, false, false, true,  false, true,  true,  true,  true,  false, false, true,  true,  true,  false, false, true,  true,  false, false, true,  false, false ],	// PRN 03
+	[false, false, false, true,  true,  false, true,  true,  false, false, true,  false, true,  true,  false, true,  false, true,  true,  true,  true,  false, true,  false, true,  false, false ],	// PRN 04
+	[true,  true,  false, false, false, false, false, false, true,  true,  false, false, false, false, false, false, true,  true,  true,  false, false, true,  true,  true,  false, false, true  ],	// PRN 05
+	[true,  true,  true,  false, false, false, false, true,  true,  false, true,  false, false, true,  true,  false, true,  false, true,  true,  true,  false, true,  true,  false, true,  true  ],	// PRN 06
+	[false, false, true,  false, true,  false, true,  false, false, true,  false, true,  false, false, true,  false, false, false, false, false, false, true,  true,  true,  false, false, false ],	// PRN 07
+	[true,  true,  false, false, false, true,  true,  true,  true,  false, true,  true,  false, false, true,  true,  true,  false, false, true,  true,  true,  true,  false, false, false, true  ],	// PRN 08
+	[false, false, false, true,  false, false, true,  true,  true,  true,  false, true,  true,  false, false, false, false, true,  true,  true,  false, false, true,  false, false, false, true  ],	// PRN 09
+	[true,  true,  true,  false, true,  true,  false, true,  true,  false, false, false, false, true,  true,  false, false, true,  false, false, false, true,  false, false, true,  true,  false ],	// PRN 10
+	[true,  true,  true,  false, false, true,  false, true,  true,  true,  false, true,  false, false, true,  false, true,  false, false, false, true,  true,  false, false, true,  false, true  ],	// PRN 11
+	[false, false, false, false, true,  false, true,  false, false, true,  false, false, false, true,  true,  true,  true,  true,  true,  true,  false, false, false, false, true,  true,  false ],	// PRN 12
+	[false, false, false, false, true,  false, false, false, true,  false, true,  false, true,  true,  false, true,  false, false, false, false, false, false, false, false, false, true,  true  ],	// PRN 13
+	[false, true,  false, false, true,  true,  false, false, false, true,  true,  false, true,  false, true,  true,  false, true,  false, true,  true,  true,  false, true,  false, false, true  ],	// PRN 14
+	[false, false, false, false, false, false, false, false, true,  false, true,  true,  false, false, true,  true,  false, false, true,  false, false, false, false, false, false, false, false ],	// PRN 15
+	[false, true,  false, false, true,  false, false, true,  false, false, false, false, false, true,  false, false, false, true,  true,  false, true,  false, false, false, true,  true,  false ],	// PRN 16
+	[true,  false, true,  true,  false, false, false, false, false, false, true,  false, true,  true,  false, true,  false, false, false, false, false, false, true,  false, true,  true,  false ],	// PRN 17
+	[false, true,  false, false, false, false, true,  false, true,  true,  false, true,  false, true,  false, false, false, true,  true,  true,  true,  false, false, false, true,  false, true  ],	// PRN 18
+	[false, false, false, true,  true,  false, true,  false, false, false, false, false, false, true,  false, false, true,  false, false, false, true,  true,  false, false, true,  false, false ],	// PRN 19
+	[false, false, true,  false, true,  false, false, false, false, false, false, true,  true,  true,  false, false, false, true,  false, true,  false, true,  true,  true,  true,  false, false ],	// PRN 20
+	[false, false, false, true,  false, false, true,  false, false, false, false, false, false, true,  false, false, true,  true,  true,  false, true,  false, true,  true,  false, true,  true  ],	// PRN 21
+	[true,  true,  true,  false, true,  false, true,  false, false, true,  true,  true,  true,  false, false, true,  false, false, false, true,  true,  false, true,  false, true,  true,  true  ],	// PRN 22
+	[false, false, false, true,  false, false, true,  false, true,  true,  true,  true,  true,  false, false, false, true,  true,  true,  false, true,  true,  true,  true,  true,  true,  true  ],	// PRN 23
+	[true,  true,  true,  true,  false, false, false, false, true,  false, true,  false, false, false, false, false, false, true,  true,  true,  false, true,  true,  false, false, false, false ],	// PRN 24
+	[true,  true,  true,  false, false, false, false, false, false, false, true,  false, true,  true,  true,  true,  false, false, false, false, true,  false, true,  true,  true,  false, false ],	// PRN 25
+	[false, false, false, false, false, true,  false, false, false, false, true,  false, true,  false, false, true,  true,  true,  false, true,  false, true,  true,  false, false, false, true  ],	// PRN 26
+	[true,  true,  true,  false, false, true,  false, true,  true,  true,  false, false, false, true,  true,  false, true,  true,  true,  false, false, true,  false, false, true,  false, true  ],	// PRN 27
+	[true,  true,  true,  false, true,  true,  true,  true,  true,  false, true,  true,  false, true,  false, true,  false, false, false, false, true,  true,  true,  false, false, true,  false ],	// PRN 28
+	[false, true,  true,  false, false, true,  false, false, true,  true,  true,  false, false, true,  false, true,  true,  true,  true,  false, false, false, true,  true,  true,  false, false ],	// PRN 29
+	[true,  true,  true,  false, false, true,  false, false, false, true,  false, false, true,  false, true,  false, true,  false, false, false, false, false, false, false, true,  true,  true  ],	// PRN 30
+	[true,  true,  true,  false, true,  false, false, true,  false, true,  false, false, true,  true,  false, false, true,  false, false, false, true,  false, true,  true,  false, true,  true  ],	// PRN 31
+	[false, false, false, true,  false, true,  false, false, false, false, false, true,  true,  true,  true,  false, true,  false, false, true,  false, false, false, true,  false, true,  true  ]	// PRN 32
 	];
 
+// TODO: move the final state constant to a unit test; it's only really needed for testing
 const CM_FINAL_STATE:[[bool; 27]; 32] = [
 	[true, false, true, true, false, true, false, true, false, true, false, true, true, true, false, true, true, false, false, false, false,  false, false, false,  false, true, false, ],		// PRN 01
 	[false, false, false,  false, true, true, true, false, false, true, false, false, true, false, false, true, false, true, false, false, false,  false, true, true, true, false, false, ],		// PRN 02
@@ -116,6 +118,7 @@ pub fn cm_code(prn:usize) -> [bool; 10230] {
 		let mut ans:[bool; 10230] = [false; 10230];
 		let mut shift_reg = ModularShiftRegister{ state: CM_INITIAL_STATE[prn-1] };
 		for idx in 0..10230 { 
+			// TODO: move this check to a unit test
 			if idx == 10229 {
 				for idx in 0..27 { 
 					assert!(shift_reg.state[idx] == CM_FINAL_STATE[prn-1][idx]); 

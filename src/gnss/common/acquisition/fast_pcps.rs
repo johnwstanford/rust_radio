@@ -42,11 +42,13 @@ impl super::Acquisition for Acquisition {
 			if self.skip_count >= N_SKIP {
 				self.skip_count = 0;
 
+				let signal:Vec<Complex<f64>> = self.buffer.drain(..self.len_fft).collect();
+
 				// Try acquiring an SV
-				let input_power_total:f64 = self.buffer.iter().map(|c| c.re*c.re + c.im*c.im).sum();
+				let input_power_total:f64 = signal.iter().map(|c| c.re*c.re + c.im*c.im).sum();
 				let input_power_avg:f64 = input_power_total / (self.len_fft as f64);
 
-				let mut best_match = super::AcquisitionResult{ doppler_hz: 0, code_phase: 0, test_statistic: 0.0 };
+				let mut best_match = super::AcquisitionResult{ doppler_hz: 0.0, code_phase: 0, test_statistic: 0.0 };
 
 				// Try every frequency and update best_match every time we find a new best
 				for fine_idx in 0..self.n_fine {
@@ -54,10 +56,10 @@ impl super::Acquisition for Acquisition {
 
 					// Wipe the carrier off the input signal
 					let phase_step_rad:f64 = (-2.0 * consts::PI * base_freq) / self.fs;			
-					let mut doppler_wiped_time_domain:Vec<Complex<f64>> = (0..(self.buffer.len()))
+					let mut doppler_wiped_time_domain:Vec<Complex<f64>> = (0..(signal.len()))
 						.map(|idx| {
 							let phase = phase_step_rad * (idx as f64);
-							self.buffer[idx] * Complex{ re: phase.cos(), im: phase.sin() }
+							signal[idx] * Complex{ re: phase.cos(), im: phase.sin() }
 						}).collect();
 
 					// Run the forward FFT
@@ -100,7 +102,7 @@ impl super::Acquisition for Acquisition {
 						let (best_idx_this_doppler, best_test_stat_raw_this_doppler) = magnitudes[0];
 						let best_test_stat_this_doppler:f64 = best_test_stat_raw_this_doppler / (input_power_avg * (self.len_fft as f64) * (self.len_fft as f64));
 						if best_match.test_statistic < best_test_stat_this_doppler {
-							best_match.doppler_hz = (base_freq + ((coarse_idx as f64)*self.fast_freq_inc)) as i16;
+							best_match.doppler_hz = base_freq + ((coarse_idx as f64)*self.fast_freq_inc);
 							best_match.code_phase = best_idx_this_doppler;
 							best_match.test_statistic = best_test_stat_this_doppler;
 						}
@@ -109,16 +111,13 @@ impl super::Acquisition for Acquisition {
 
 				}
 
-				// Clear the buffer for next time
-				self.buffer.clear();
-
 				// Return the best match if it meets the threshold
 				if best_match.test_statistic > self.test_statistic_threshold { Ok(Some(best_match)) }
 				else { Ok(None) }
 
 			} else {
 				// Clear the buffer for next time
-				self.buffer.clear();
+				self.buffer.drain(..self.len_fft);
 
 				Ok(None)
 			}

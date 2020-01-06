@@ -20,7 +20,7 @@ type Sample = (Complex<f64>, usize);
 #[derive(Debug)]
 pub enum ChannelResult {
 	NotReady(&'static str),
-	Acquisition{ doppler_hz:i16, test_stat:f64 },
+	Acquisition{ doppler_hz:f64, test_stat:f64 },
 	Ok{sf:Option<SF>},
 	Err(DigSigProcErr),
 }

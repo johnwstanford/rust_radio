@@ -18,7 +18,7 @@ use serde::{Serialize, Deserialize};
 #[derive(Debug, Serialize, Deserialize)]
 struct AcquisitionRecord {
 	pub prn:usize,
-	pub doppler_hz:i16,
+	pub doppler_hz:f64,
 	pub code_phase:usize,
 	pub test_statistic:f64,
 }
@@ -64,7 +64,7 @@ fn main() {
 			}
 		}
 
-		acquisition::make_acquisition(symbol, fs, prn, 10500, 2, 0.0)
+		acquisition::make_acquisition(symbol, fs, prn, 6000, 2, 0.0)	// Should give a range of +/- 4 kHz with 0.33 Hz precision
 
 	}).collect();
 
@@ -85,7 +85,7 @@ fn main() {
 			}
 		}
 
-		if all_records.len() >= 40 { break; }
+		if all_records.len() >= 32 { break; }
 
 	}
 

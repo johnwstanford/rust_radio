@@ -18,7 +18,7 @@ use serde::{Serialize, Deserialize};
 #[derive(Debug, Serialize, Deserialize)]
 struct AcquisitionRecord {
 	pub prn:usize,
-	pub doppler_hz:i16,
+	pub doppler_hz:f64,
 	pub code_phase:usize,
 	pub test_statistic:f64,
 }

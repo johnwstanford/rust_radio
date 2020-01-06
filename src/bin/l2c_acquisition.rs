@@ -130,8 +130,6 @@ fn main() {
 			}
 		}
 
-		if all_records.len() >= 2000 { break; }
-
 	}
 
 	// Output data in JSON format

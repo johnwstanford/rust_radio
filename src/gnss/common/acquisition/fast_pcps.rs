@@ -46,9 +46,9 @@ impl super::Acquisition for Acquisition {
 
 				// Try acquiring an SV
 				let input_power_total:f64 = signal.iter().map(|c| c.re*c.re + c.im*c.im).sum();
-				let input_power_avg:f64 = input_power_total / (self.len_fft as f64);
 
-				let mut best_match = super::AcquisitionResult{ doppler_hz: 0.0, code_phase: 0, test_statistic: 0.0 };
+				let mut best_match = super::AcquisitionResult{ doppler_hz: 0.0, code_phase: 0, mf_response: Complex{re: 0.0, im: 0.0}, 
+					mf_len: self.len_fft, input_power_total };
 
 				// Try every frequency and update best_match every time we find a new best
 				for fine_idx in 0..self.n_fine {
@@ -92,19 +92,16 @@ impl super::Acquisition for Acquisition {
 						self.ifft.process(&mut convolution_freq_domain, &mut self.ifft_out);
 						self.ifft_out = self.ifft_out.iter().map(|c| c / (self.len_fft as f64)).collect();
 
-						// Normalize, enumerate, and sort the magnitudes
-						let mut magnitudes:Vec<(usize, f64)> = (&self.ifft_out).into_iter()
-							.map(|c| (c.re*c.re + c.im*c.im))
-							.enumerate().collect();
-						magnitudes.sort_by(|a,b| b.1.partial_cmp(&a.1).unwrap() );
+						// Find the best result from this frequency
+						for (idx, mf_response) in (&self.ifft_out).into_iter().enumerate() {
 
-						// Compare the best result from this iteration to the overall best result
-						let (best_idx_this_doppler, best_test_stat_raw_this_doppler) = magnitudes[0];
-						let best_test_stat_this_doppler:f64 = best_test_stat_raw_this_doppler / (input_power_avg * (self.len_fft as f64) * (self.len_fft as f64));
-						if best_match.test_statistic < best_test_stat_this_doppler {
-							best_match.doppler_hz = base_freq + ((coarse_idx as f64)*self.fast_freq_inc);
-							best_match.code_phase = best_idx_this_doppler;
-							best_match.test_statistic = best_test_stat_this_doppler;
+							// Compare the best result from this frequency to the best result overall
+							if best_match.mf_response.norm_sqr() < mf_response.norm_sqr() {
+								best_match.doppler_hz  = base_freq + ((coarse_idx as f64)*self.fast_freq_inc);
+								best_match.code_phase  = idx;
+								best_match.mf_response = *mf_response;
+							}
+
 						}
 
 					}
@@ -112,7 +109,7 @@ impl super::Acquisition for Acquisition {
 				}
 
 				// Return the best match if it meets the threshold
-				if best_match.test_statistic > self.test_statistic_threshold { Ok(Some(best_match)) }
+				if best_match.test_statistic() > self.test_statistic_threshold { Ok(Some(best_match)) }
 				else { Ok(None) }
 
 			} else {

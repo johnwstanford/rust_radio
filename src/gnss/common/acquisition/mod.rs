@@ -12,7 +12,15 @@ pub mod fast_pcps;
 pub struct AcquisitionResult {
 	pub doppler_hz:f64,
 	pub code_phase:usize,
-	pub test_statistic:f64,
+	pub mf_response:Complex<f64>,
+	pub mf_len:usize,
+	pub input_power_total:f64,
+}
+
+impl AcquisitionResult {
+
+	pub fn test_statistic(&self) -> f64 { self.mf_response.norm_sqr() / (self.input_power_total * (self.mf_len as f64)) }
+
 }
 
 pub trait Acquisition {

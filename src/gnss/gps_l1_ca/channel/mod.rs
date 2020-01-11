@@ -50,8 +50,8 @@ impl<A: acquisition::Acquisition> Channel<A> {
 			track_and_tlm::ChannelState::AwaitingAcquisition => {
 				self.acq.provide_sample(s).unwrap();
 				if let Ok(Some(r)) = self.acq.block_for_result(self.prn) {
-					self.trk_tlm.acquire(r.test_statistic, r.doppler_hz as f64, r.code_phase);
-					ChannelResult::Acquisition{ doppler_hz: r.doppler_hz, test_stat: r.test_statistic }
+					self.trk_tlm.acquire(r.test_statistic(), r.doppler_hz as f64, r.code_phase);
+					ChannelResult::Acquisition{ doppler_hz: r.doppler_hz, test_stat: r.test_statistic() }
 				} else {
 					ChannelResult::NotReady("Waiting on acquisition")		
 				}

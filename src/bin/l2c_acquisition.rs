@@ -1,5 +1,6 @@
 
 extern crate clap;
+extern crate colored;
 extern crate dirs;
 extern crate nalgebra as na;
 extern crate rust_radio;
@@ -7,6 +8,7 @@ extern crate rustfft;
 extern crate serde;
 
 use clap::{Arg, App};
+use colored::*;
 use rust_radio::io;
 use rust_radio::gnss::common::acquisition;
 use rust_radio::gnss::common::acquisition::Acquisition;
@@ -25,6 +27,7 @@ struct AcquisitionRecord {
 	pub cl_doppler_hz:Option<f64>,
 	pub cl_code_phase:Option<usize>,
 	pub cl_test_statistic:Option<f64>,
+	pub cl_carrier_phase:Option<f64>,
 }
 
 const L2_CM_PERIOD_SEC:f64 = 20.0e-3;
@@ -102,27 +105,37 @@ fn main() {
 				Ok(Some(result)) => {
 					acq_cl.doppler_freqs = (-48..48).map(|x| ((x as f64) * 0.25) + result.doppler_hz).collect();
 					let record = match acq_cl.block_for_result(prn) {
-						Ok(Some(result_cl)) => AcquisitionRecord { 
-							prn, 
-							doppler_hz:        result.doppler_hz, 
-							code_phase:        result.code_phase, 
-							test_statistic:    result.test_statistic(),
-							cl_doppler_hz:     Some(result_cl.doppler_hz),
-							cl_code_phase:     Some(result_cl.code_phase),
-							cl_test_statistic: Some(result_cl.test_statistic()),
+						Ok(Some(result_cl)) => {
+							eprintln!("PRN {:02} {}, {}", prn, 
+								format!("CM: {:6} [Hz], {:6} [chips], {:.8}", result.doppler_hz, result.code_phase, result.test_statistic()).yellow(), 
+								format!("CL: {:8.2} [Hz], {:10} [chips], {:.8}, {:.3} [radians]", result_cl.doppler_hz, result_cl.code_phase, result_cl.test_statistic(), result_cl.mf_response.arg()).green());
+							AcquisitionRecord { 
+								prn, 
+								doppler_hz:        result.doppler_hz, 
+								code_phase:        result.code_phase, 
+								test_statistic:    result.test_statistic(),
+								cl_doppler_hz:     Some(result_cl.doppler_hz),
+								cl_code_phase:     Some(result_cl.code_phase),
+								cl_test_statistic: Some(result_cl.test_statistic()),
+								cl_carrier_phase:  Some(result_cl.mf_response.arg()),
+							}
 						},
-						_ => AcquisitionRecord { 
-							prn, 
-							doppler_hz:        result.doppler_hz, 
-							code_phase:        result.code_phase, 
-							test_statistic:    result.test_statistic(),
-							cl_doppler_hz:     None,
-							cl_code_phase:     None,
-							cl_test_statistic: None,
+						_ => {
+							eprintln!("PRN {:02} {}", prn, 
+								format!("CM: {:6} [Hz], {:6} [chips], {:.8}", result.doppler_hz, result.code_phase, result.test_statistic()).yellow());
+							AcquisitionRecord { 
+								prn, 
+								doppler_hz:        result.doppler_hz, 
+								code_phase:        result.code_phase, 
+								test_statistic:    result.test_statistic(),
+								cl_doppler_hz:     None,
+								cl_code_phase:     None,
+								cl_test_statistic: None,
+								cl_carrier_phase:  None,
+							}
 						},
 					};
 
-					eprintln!("PRN {} {:?}", prn, &record);
 					all_records.push(record)
 				},
 				Err(msg) => eprintln!("PRN {}: Error, {}", prn, msg),

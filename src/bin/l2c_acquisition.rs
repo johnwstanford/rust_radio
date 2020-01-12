@@ -108,7 +108,7 @@ fn main() {
 						Ok(Some(result_cl)) => {
 							eprintln!("PRN {:02} {}, {}", prn, 
 								format!("CM: {:6} [Hz], {:6} [chips], {:.8}", result.doppler_hz, result.code_phase, result.test_statistic()).yellow(), 
-								format!("CL: {:8.2} [Hz], {:10} [chips], {:.8}, {:.3} [radians]", result_cl.doppler_hz, result_cl.code_phase, result_cl.test_statistic(), result_cl.mf_response.arg()).green());
+								format!("CL: {:8.2} [Hz], {:7} [chips], {:.8}, {:6.3} [radians]", result_cl.doppler_hz, result_cl.code_phase, result_cl.test_statistic(), result_cl.mf_response.arg()).green());
 							AcquisitionRecord { 
 								prn, 
 								doppler_hz:        result.doppler_hz, 

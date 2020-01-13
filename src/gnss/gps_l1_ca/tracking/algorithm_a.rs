@@ -108,11 +108,11 @@ impl Tracking {
 		// If there's a new prompt value available, do correlation on it and add it to the prompt buffer
 		if self.code_phase >= 1023.0 {
 
-			// Update carrier tracking
+			// Update carrier tracking; these bounds should limit updates to about 80 [Hz/sec]
 			let angle_err:f64 = match (self.correlation_prompt.im / self.correlation_prompt.re).atan() {
-				a if a > ( 0.3 * consts::PI) =>  0.3 * consts::PI,
-				a if a < (-0.3 * consts::PI) => -0.3 * consts::PI,
-				a                            => a,
+				a if a >  0.5 =>  0.5,
+				a if a < -0.5 => -0.5,
+				a             =>  a,
 			};
 			self.d_carrier_radians_per_sample += angle_err / self.code_len_samples;
 			self.carrier_step = Complex{ re: self.d_carrier_radians_per_sample.cos(), im: self.d_carrier_radians_per_sample.sin() };
@@ -136,6 +136,9 @@ impl Tracking {
 
 			// Record the prompt test statistic
 			self.test_stat = self.correlation_prompt.norm_sqr() / (self.input_signal_power * self.code_len_samples);
+			if self.test_stat < 0.001 {
+				self.state = TrackingState::LostLock;
+			}
 
 			// Reset the sum accumulators for the next prompt
 			self.correlation_early  = Complex{ re: 0.0, im: 0.0};
@@ -143,61 +146,52 @@ impl Tracking {
 			self.correlation_late   = Complex{ re: 0.0, im: 0.0};
 			self.input_signal_power = 0.0;
 
-			// Normalize the carrier after every symbol
-			self.carrier.unscale(self.carrier.norm());
-		}
-
-		// Match on the current state.
-		match self.state {
-			TrackingState::WaitingForInitialLockStatus => {
-
-				if self.prompt_buffer.len() >= 40 { 
+			// Match on the current state.
+			match self.state {
+				TrackingState::WaitingForInitialLockStatus => if self.prompt_buffer.len() >= 40 { 
 					// Throw away the first 20 prompts since this is where the prompt state was likely settling on steady state
 					self.prompt_buffer.drain(..20);	
 
 					// Begin looking for the first transition marking a bit boundary
 					self.state = TrackingState::WaitingForFirstTransition; 
-				}
+				},
+				TrackingState::WaitingForFirstTransition => {
+					let (found_transition, back_positive) = match (self.prompt_buffer.front(), self.prompt_buffer.back()) {
+						(Some(front), Some(back)) => ((front.re > 0.0) != (back.re > 0.0), back.re > 0.0),
+						(_, _)                    => (false, false)
+					};
 
-				TrackingResult::NotReady
-			},
-			TrackingState::WaitingForFirstTransition => {
-				let (found_transition, back_positive) = match (self.prompt_buffer.front(), self.prompt_buffer.back()) {
-					(Some(front), Some(back)) => ((front.re > 0.0) != (back.re > 0.0), back.re > 0.0),
-					(_, _)                    => (false, false)
-				};
+					if found_transition {
+						// We've found the first transition, get rid of everything before the transition
+						self.prompt_buffer.retain(|c| (c.re > 0.0) == back_positive);
 
-				if found_transition {
-					// We've found the first transition, get rid of everything before the transition
-					self.prompt_buffer.retain(|c| (c.re > 0.0) == back_positive);
+						if self.prompt_buffer.len() > 0 {
+							self.state = TrackingState::Tracking;
+						} else {
+							panic!("Somehow ended up with an empty prompt buffer after detecting the first transition");
+						}
+					} 
 
-					if self.prompt_buffer.len() > 0 {
-						self.state = TrackingState::Tracking;
-					} else {
-						panic!("Somehow ended up with an empty prompt buffer after detecting the first transition");
-					}
-				} 
-
-				TrackingResult::NotReady
-			},
-			TrackingState::Tracking => {
-				if self.prompt_buffer.len() >= 20 { 
+				},
+				TrackingState::Tracking => if self.prompt_buffer.len() >= 20 { 
 					// Save coherent SNR components
 					self.last_coh_total_power = (&self.prompt_buffer).into_iter().map(|x| x.norm_sqr()).sum();
 					self.last_coh_noise_power = (&self.prompt_buffer).into_iter().map(|x| 2.0 * x.im.powi(2)).sum();
 
 					// Normalize the carrier at the end of every bit, which is every 20 ms
-					self.carrier = self.carrier / self.carrier.norm();
+					self.carrier = self.carrier.unscale(self.carrier.norm());
 
 					// We have enough prompts to build a bit
 					let this_bit_re:f64 = self.prompt_buffer.drain(..20).map(|c| c.re).fold(0.0, |a,b| a+b);
-					TrackingResult::Ok{ prompt_i:this_bit_re, bit_idx: sample.1} 
-				} else { TrackingResult::NotReady }
+					return TrackingResult::Ok{ prompt_i:this_bit_re, bit_idx: sample.1};
+				},
+				TrackingState::LostLock => { return TrackingResult::Err(DigSigProcErr::LossOfLock); },
+			};		
+		} 
 
-			},
-			TrackingState::LostLock => TrackingResult::Err(DigSigProcErr::LossOfLock),
-		}
-		
+		// If there's a result ready, it is short-circuited somewhere above with a return statement
+		TrackingResult::NotReady
+
 	}
 
 }

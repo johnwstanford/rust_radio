@@ -57,7 +57,7 @@ pub struct Channel {
 	pub prn:usize,
 	pub fs:f64,
 	state:ChannelState,
-	trk: tracking::Tracking,
+	trk: tracking::algorithm_b::Tracking,
 	tlm: telemetry_decode::TelemetryDecoder,
 	last_acq_doppler:f64,
 	last_acq_test_stat:f64,
@@ -111,7 +111,7 @@ impl Channel {
 			},
 			ChannelState::Tracking => { 
 				match self.trk.apply(s) {
-					tracking::TrackingResult::Ok{prompt_i, bit_idx} => {
+					tracking::algorithm_b::TrackingResult::Ok{prompt_i, bit_idx} => {
 						// The tracker has a lock and produced a bit, so pass it into the telemetry decoder and match on the result
 						if let Some(tow_sec) = &mut self.opt_tow_sec {
 							*tow_sec += 0.02;
@@ -154,8 +154,8 @@ impl Channel {
 						ChannelResult::Ok{sf}
 
 					},
-					tracking::TrackingResult::NotReady => ChannelResult::NotReady("Waiting on next bit from tracker"),
-					tracking::TrackingResult::Err(e) => {
+					tracking::algorithm_b::TrackingResult::NotReady => ChannelResult::NotReady("Waiting on next bit from tracker"),
+					tracking::algorithm_b::TrackingResult::Err(e) => {
 						self.state = ChannelState::AwaitingAcquisition;
 						ChannelResult::Err(e)
 					},
@@ -206,7 +206,7 @@ pub fn new_default_channel(prn:usize, fs:f64) -> Channel { new_channel(prn, fs) 
 
 pub fn new_channel(prn:usize, fs:f64) -> Channel {
 	let state = ChannelState::AwaitingAcquisition;
-	let trk = tracking::new_default_tracker(prn, 0.0, fs, DEFAULT_PLL_BW_HZ, DEFAULT_DLL_BW_HZ);
+	let trk = tracking::algorithm_b::new_default_tracker(prn, 0.0, fs, DEFAULT_PLL_BW_HZ, DEFAULT_DLL_BW_HZ);
 	let tlm = telemetry_decode::TelemetryDecoder::new();
 
 	Channel{ prn, fs, state, trk, tlm, last_acq_doppler:0.0, last_acq_test_stat: 0.0, last_sample_idx: 0, 

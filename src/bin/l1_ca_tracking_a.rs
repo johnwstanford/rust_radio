@@ -10,6 +10,9 @@ extern crate serde;
 use clap::{Arg, App};
 use colored::*;
 use rust_radio::io;
+use rust_radio::gnss::gps_l1_ca;
+use rust_radio::gnss::common::acquisition;
+use rust_radio::gnss::common::acquisition::Acquisition;
 use rust_radio::gnss::gps_l1_ca::tracking::algorithm_a;
 use rustfft::num_complex::Complex;
 
@@ -29,12 +32,6 @@ fn main() {
 		.arg(Arg::with_name("prn")
 			.short("p").long("prn")
 			.takes_value(true).required(true))
-		.arg(Arg::with_name("acq_freq_hz")
-			.short("h").long("acq_freq_hz")
-			.takes_value(true).required(true))
-		.arg(Arg::with_name("code_phase")
-			.short("c").long("code_phase")
-			.takes_value(true).required(true))
 		.arg(Arg::with_name("max_records")
 			.short("m").long("max_records")
 			.takes_value(true))
@@ -44,18 +41,34 @@ fn main() {
 	let fname:&str       = matches.value_of("filename").unwrap();
 	let fs:f64           = matches.value_of("sample_rate_sps").unwrap().parse().unwrap();
 	let prn:usize        = matches.value_of("prn").unwrap().parse().unwrap();
-	let acq_freq_hz:f64  = matches.value_of("acq_freq_hz").unwrap().parse().unwrap();
-	let code_phase:usize = matches.value_of("code_phase").unwrap().parse().unwrap();
 
 	// Parse optional fields
 	let opt_max_records:Option<usize> = matches.value_of("max_records").map(|s| s.parse().unwrap() );
 
 	eprintln!("Decoding {} at {} [samples/sec], max_records={:?}", &fname, &fs, &opt_max_records);
 
-	let mut trk = algorithm_a::new_default_tracker(prn, acq_freq_hz, fs);
+	let symbol:Vec<i8> = gps_l1_ca::signal_modulation::prn_int_sampled(prn, fs);
+	let mut acq = acquisition::make_acquisition(symbol, fs, prn, 9, 17, 0.0);
+	
+	let mut trk = algorithm_a::new_default_tracker(prn, 0.0, fs);
+	let mut code_phase:usize = 0;
 	let mut all_results:Vec<algorithm_a::TrackingDebug> = vec![];
 
-	'outer: for s in io::file_source_i16_complex(&fname).map(|(x, idx)| (Complex{ re: x.0 as f64, im: x.1 as f64 }, idx)).skip(code_phase) {
+	'outer_acq: for s in io::file_source_i16_complex(&fname).map(|(x, idx)| (Complex{ re: x.0 as f64, im: x.1 as f64 }, idx)) {
+		acq.provide_sample(s).unwrap();
+		match acq.block_for_result(prn) {
+			Ok(Some(result)) => {
+				eprintln!("PRN {:02}: {:9.2} [Hz], {:6} [chips], {:.8}", prn, result.doppler_hz, result.code_phase, result.test_statistic());
+				trk = algorithm_a::new_default_tracker(prn, result.doppler_hz, fs);
+				code_phase = result.code_phase;
+				break 'outer_acq;
+			},
+			_ => {},
+		}
+	}
+
+	// Open a brand new file
+	'outer_trk: for s in io::file_source_i16_complex(&fname).map(|(x, idx)| (Complex{ re: x.0 as f64, im: x.1 as f64 }, idx)).skip(code_phase) {
 
 		trk.apply(s);
 		if s.1 % 2000000 == 0 {
@@ -64,11 +77,11 @@ fn main() {
 				algorithm_a::TrackingState::WaitingForInitialLockStatus => eprintln!("WaitingForInitialLockStatus {}", format!("{:9.2} [Hz], {:.8}", debug.carrier_hz, debug.test_stat).yellow()),
 				algorithm_a::TrackingState::WaitingForFirstTransition   => eprintln!("WaitingForFirstTransition {}", format!("{:9.2} [Hz], {:.8}", debug.carrier_hz, debug.test_stat).yellow()),
 				algorithm_a::TrackingState::Tracking                    => eprintln!("Tracking {}", format!("{:9.2} [Hz], {:.8}", debug.carrier_hz, debug.test_stat).green()),
-				algorithm_a::TrackingState::LostLock                    => eprintln!("LostLock {}", format!("{:9.2} [Hz], {:.8}", debug.carrier_hz, debug.test_stat).red()),
+				algorithm_a::TrackingState::LostLock                    => break 'outer_trk,
 			}
 			all_results.push(debug);
 			if let Some(max_records) = opt_max_records {
-				if all_results.len() >= max_records { break 'outer; }
+				if all_results.len() >= max_records { break 'outer_trk; }
 			}
 		}
 

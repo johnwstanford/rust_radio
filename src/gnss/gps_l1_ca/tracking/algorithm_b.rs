@@ -1,10 +1,12 @@
 
 extern crate rustfft;
+extern crate serde;
 
 use std::collections::VecDeque;
 use std::f64::consts;
 
 use self::rustfft::num_complex::Complex;
+use self::serde::{Serialize, Deserialize};
 
 use ::filters;
 use ::gnss::gps_l1_ca;
@@ -47,7 +49,7 @@ pub struct Tracking {
 	sum_prompt: Complex<f64>,
 	sum_late:   Complex<f64>,
 	prompt_buffer: VecDeque<Complex<f64>>,
-	state: TrackingState,
+	pub state: TrackingState,
 	pub fs:f64,
 	pub local_code:Vec<Complex<f64>>,
 	pub threshold_carrier_lock_test:f64,
@@ -59,7 +61,7 @@ pub struct Tracking {
 }
 
 #[derive(Debug)]
-enum TrackingState {
+pub enum TrackingState {
 	WaitingForInitialLockStatus,
 	WaitingForFirstTransition,
 	Tracking,
@@ -70,6 +72,16 @@ pub enum TrackingResult {
 	NotReady,
 	Ok{ prompt_i:f64, bit_idx:usize },
 	Err(DigSigProcErr),
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct TrackingDebug {
+	pub carrier_re:f64,
+	pub carrier_im:f64,
+	pub carrier_hz:f64,
+	pub correlation_prompt_re:f64,
+	pub correlation_prompt_im:f64,
+	pub estimated_snr_coh:f64,
 }
 
 impl Tracking {
@@ -83,6 +95,17 @@ impl Tracking {
 	pub fn carrier_freq_hz(&self) -> f64 { (self.carrier_dphase_rad * self.fs) / (2.0 * consts::PI) }
 	pub fn carrier_phase_rad(&self) -> f64 { self.carrier.arg() }
 	pub fn code_phase_samples(&self) -> f64 { self.code_phase }
+
+	pub fn debug(&self) -> TrackingDebug {
+		TrackingDebug {
+			carrier_re: self.carrier.re,
+			carrier_im: self.carrier.im,
+			carrier_hz: (self.carrier_dphase_rad * self.fs) / (2.0 * consts::PI),
+			correlation_prompt_re: self.sum_prompt.re,
+			correlation_prompt_im: self.sum_prompt.im,
+			estimated_snr_coh: self.estimated_snr_coh(),
+		}
+	}
 
 	fn cn0_and_tracking_lock_status(&mut self) -> bool {
 		self.last_cn0_snv_db_hz = cn0_svn_estimator(&self.prompt_buffer, 0.001);

@@ -73,10 +73,11 @@ fn main() {
 				Ok(Some(result)) => {
 
 					let result_str = format!("{:9.2} [Hz], {:6} [chips], {:.8}, {:8.2} [radians]", result.doppler_hz, result.code_phase, result.test_statistic(), result.mf_response.arg());
+					let time:f64 = s.1 as f64 / fs;
 					if result.test_statistic() < 0.01 {
-						eprintln!("PRN {:02} {}", prn, result_str.yellow());
+						eprintln!("{:6.2} [sec], PRN {:02} {}", time, prn, result_str.yellow());
 					} else {
-						eprintln!("PRN {:02} {}", prn, result_str.green());
+						eprintln!("{:6.2} [sec], PRN {:02} {}", time, prn, result_str.green());
 					}
 
 					let record = AcquisitionRecord { 

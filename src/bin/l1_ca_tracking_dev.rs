@@ -48,7 +48,7 @@ fn main() {
 	eprintln!("Decoding {} at {} [samples/sec], max_records={:?}", &fname, &fs, &opt_max_records);
 
 	let symbol:Vec<i8> = gps_l1_ca::signal_modulation::prn_int_sampled(prn, fs);
-	let mut acq = acquisition::make_acquisition(symbol, fs, prn, 9, 500, 0.0);
+	let mut acq = acquisition::make_acquisition(symbol, fs, prn, 9, 500, 0.0, 0);
 	
 	let mut trk = algorithm_dev::new_default_tracker(prn, 0.0, fs);
 	let mut code_phase:usize = 0;

@@ -63,7 +63,7 @@ fn main() {
 		let neg_bit:Vec<i8> = pos_bit.iter().map(|a| -a).collect();
 		let pos_neg:Vec<i8> = vec![pos_bit, neg_bit].concat();
 
-		acquisition::make_acquisition(pos_neg, fs, prn, 320, 2, 0.0)
+		acquisition::make_acquisition(pos_neg, fs, prn, 320, 2, 0.0, 0)
 
 	}).collect();
 

@@ -57,7 +57,7 @@ fn main() {
 	let mut acqs:Vec<fast_pcps::Acquisition> = (1..=32).map( |prn| {
 
 		let symbol:Vec<i8> = gps_l1_ca::signal_modulation::prn_int_sampled(prn, fs);
-		acquisition::make_acquisition(symbol, fs, prn, 9, 17, 0.0)
+		acquisition::make_acquisition(symbol, fs, prn, 9, 17, 0.0, 0)
 
 	}).collect();
 

@@ -7,8 +7,6 @@ use std::sync::Arc;
 use self::rustfft::FFT;
 use self::rustfft::num_complex::Complex;
 
-const N_SKIP:usize = 9;
-
 pub struct Acquisition {
 	pub fs:f64,
 	pub prn:usize,
@@ -24,6 +22,7 @@ pub struct Acquisition {
 	pub skip_count: usize,
 	pub last_sample_idx: usize,
 	pub fast_freq_inc:f64,
+	pub n_skip:usize,
 }
 
 impl super::Acquisition for Acquisition {
@@ -39,7 +38,7 @@ impl super::Acquisition for Acquisition {
 	fn block_for_result(&mut self, prn:usize) -> Result<Option<super::AcquisitionResult>, &str> {
 		if self.buffer.len() >= self.len_fft && prn == self.prn {
 			self.skip_count += 1;
-			if self.skip_count >= N_SKIP {
+			if self.skip_count > self.n_skip {
 				self.skip_count = 0;
 
 				let signal:Vec<Complex<f64>> = self.buffer.drain(..self.len_fft).collect();

@@ -15,6 +15,14 @@ use rust_radio::gnss::common::acquisition;
 use rust_radio::gnss::common::acquisition::Acquisition;
 use rust_radio::gnss::gps_l1_ca::tracking::algorithm_standard;
 use rustfft::num_complex::Complex;
+use serde::{Serialize, Deserialize};
+
+#[derive(Debug, Serialize, Deserialize)]
+struct Result {
+	prompt_i: f64,
+	bit_idx: usize,
+	debug: algorithm_standard::TrackingDebug,
+}
 
 fn main() {
 
@@ -48,11 +56,12 @@ fn main() {
 	eprintln!("Decoding {} at {} [samples/sec], max_records={:?}", &fname, &fs, &opt_max_records);
 
 	let symbol:Vec<i8> = gps_l1_ca::signal_modulation::prn_int_sampled(prn, fs);
-	let mut acq = acquisition::make_acquisition(symbol, fs, prn, 9, 500, 0.0);
-	
+
+	// 2 [Hz] resolution on acquisition; we're only doing this once and we want to give the tracking block the best start possible
+	let mut acq = acquisition::make_acquisition(symbol, fs, prn, 9, 500, 0.0, 0);
 	let mut trk = algorithm_standard::new_default_tracker(prn, 0.0, fs, 40.0, 4.0);
 	let mut code_phase:usize = 0;
-	let mut all_results:Vec<algorithm_standard::TrackingDebug> = vec![];
+	let mut all_results:Vec<Result> = vec![];
 
 	'outer_acq: for s in io::file_source_i16_complex(&fname).map(|(x, idx)| (Complex{ re: x.0 as f64, im: x.1 as f64 }, idx)) {
 		acq.provide_sample(s).unwrap();
@@ -71,21 +80,20 @@ fn main() {
 	'outer_trk: for s in io::file_source_i16_complex(&fname).map(|(x, idx)| (Complex{ re: x.0 as f64, im: x.1 as f64 }, idx)).skip(code_phase) {
 
 		match trk.apply(s) {
+			algorithm_standard::TrackingResult::Ok{ prompt_i, bit_idx } => {
+				let debug = trk.debug();
+				match trk.state {
+					algorithm_standard::TrackingState::WaitingForInitialLockStatus => eprintln!("B: WaitingForInitialLockStatus {}", format!("{:9.2} [Hz], {:14.3}", debug.carrier_hz, debug.estimated_snr_coh).yellow()),
+					algorithm_standard::TrackingState::WaitingForFirstTransition   => eprintln!("B: WaitingForFirstTransition {}", format!("{:9.2} [Hz], {:14.3}", debug.carrier_hz, debug.estimated_snr_coh).yellow()),
+					algorithm_standard::TrackingState::Tracking                    => eprintln!("B: Tracking {}", format!("{:9.2} [Hz], {:9.2}", debug.carrier_hz, debug.estimated_snr_coh).green()),
+				}
+				all_results.push(Result{ prompt_i, bit_idx, debug });
+				if let Some(max_records) = opt_max_records {
+					if all_results.len() >= max_records { break 'outer_trk; }
+				}
+			},
 			algorithm_standard::TrackingResult::Err(_) => break 'outer_trk,
 			_                                   => {},
-		}
-
-		if s.1 % 2000000 == 0 {
-			let debug = trk.debug();
-			match trk.state {
-				algorithm_standard::TrackingState::WaitingForInitialLockStatus => eprintln!("B: WaitingForInitialLockStatus {}", format!("{:9.2} [Hz], {:14.3}", debug.carrier_hz, debug.estimated_snr_coh).yellow()),
-				algorithm_standard::TrackingState::WaitingForFirstTransition   => eprintln!("B: WaitingForFirstTransition {}", format!("{:9.2} [Hz], {:14.3}", debug.carrier_hz, debug.estimated_snr_coh).yellow()),
-				algorithm_standard::TrackingState::Tracking                    => eprintln!("B: Tracking {}", format!("{:9.2} [Hz], {:9.2}", debug.carrier_hz, debug.estimated_snr_coh).green()),
-			}
-			all_results.push(debug);
-			if let Some(max_records) = opt_max_records {
-				if all_results.len() >= max_records { break 'outer_trk; }
-			}
 		}
 
 	}

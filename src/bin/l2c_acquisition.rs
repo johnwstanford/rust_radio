@@ -72,7 +72,7 @@ fn main() {
 			}
 		}
 
-		let acq_cm = acquisition::make_acquisition(symbol_cm, fs, prn, 140, 5, 0.0);
+		let acq_cm = acquisition::make_acquisition(symbol_cm, fs, prn, 140, 5, 0.0, 0);
 
 		// Create CL code and resample
 		let cl_code:[bool; 767250] = signal_modulation::cl_code(prn);

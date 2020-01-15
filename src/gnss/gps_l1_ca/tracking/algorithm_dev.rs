@@ -8,6 +8,7 @@ use std::f64::consts;
 use self::rustfft::num_complex::Complex;
 use self::serde::{Serialize, Deserialize};
 
+use ::filters;
 use ::gnss::gps_l1_ca;
 use ::DigSigProcErr;
 
@@ -16,6 +17,7 @@ pub struct Tracking {
 	carrier_step: Complex<f64>,
 	d_carrier_radians_per_sample: f64,
 	code_len_samples: f64,
+	carrier_filter: filters::SecondOrderFIR,
 
 	code_phase: f64,
 	code_dphase: f64,
@@ -108,15 +110,15 @@ impl Tracking {
 		// If there's a new prompt value available, do correlation on it and add it to the prompt buffer
 		if self.code_phase >= 1023.0 {
 
-			// Update carrier tracking; these bounds should limit updates to about 80 [Hz/sec]
-			let angle_err:f64 = match (self.correlation_prompt.im / self.correlation_prompt.re).atan() {
-				a if a >  0.5 =>  0.5,
-				a if a < -0.5 => -0.5,
-				a             =>  a,
-			};
+			// Update carrier tracking
+			let carrier_error = if self.correlation_prompt.re == 0.0 { 0.0 } else { (self.correlation_prompt.im / self.correlation_prompt.re).atan() / self.fs };
+			self.d_carrier_radians_per_sample += self.carrier_filter.apply(carrier_error);
+			self.carrier_step = Complex{ re: self.d_carrier_radians_per_sample.cos(), im: self.d_carrier_radians_per_sample.sin() };
+
+			/*let angle_err:f64 = (self.correlation_prompt.im / self.correlation_prompt.re).atan();
 			self.d_carrier_radians_per_sample += angle_err / self.code_len_samples;
 			self.carrier_step = Complex{ re: self.d_carrier_radians_per_sample.cos(), im: self.d_carrier_radians_per_sample.sin() };
-			self.carrier *= Complex{ re: angle_err.cos(), im: angle_err.sin()};
+			self.carrier *= Complex{ re: angle_err.cos(), im: angle_err.sin()};*/
 	
 			// Update code tracking
 	        let carrier_hz = (self.d_carrier_radians_per_sample * self.fs) / (2.0 * consts::PI);
@@ -125,8 +127,8 @@ impl Tracking {
 	
 			self.code_phase -= 1023.0;
 			let code_phase_correction = match (self.correlation_early.norm() - self.correlation_late.norm()) / (4.0*self.correlation_early.norm() - 8.0*self.correlation_prompt.norm() + 4.0*self.correlation_late.norm()) {
-				e if e >  0.1 =>  0.1,
-				e if e < -0.1 => -0.1,
+				e if e >  0.2 =>  0.2,
+				e if e < -0.2 => -0.2,
 				e             =>  e,
 			};
 			self.code_phase += code_phase_correction;
@@ -136,7 +138,7 @@ impl Tracking {
 
 			// Record the prompt test statistic
 			self.test_stat = self.correlation_prompt.norm_sqr() / (self.input_signal_power * self.code_len_samples);
-			if self.test_stat < 0.001 {
+			if self.test_stat < 0.0005 {
 				self.state = TrackingState::LostLock;
 			}
 
@@ -209,7 +211,15 @@ pub fn new_default_tracker(prn:usize, acq_freq_hz:f64, fs:f64) -> Tracking {
 	let code_phase      = 0.0;
 	let code_dphase     = (radial_velocity_factor * 1.023e6) / fs;
 
-	Tracking { carrier, carrier_step, d_carrier_radians_per_sample, code_len_samples: fs*1.0e-3,
+	let zeta = 0.7;
+	let pdi = 0.001;
+	let wn_car = (40.0 * 8.0 * zeta) / (4.0 * zeta * zeta + 1.0);
+	let tau1_car = 0.25 / (wn_car * wn_car);
+	let tau2_car = (2.0 * zeta) / wn_car;
+
+	let carrier_filter = filters::new_second_order_fir((pdi + 2.0*tau2_car) / (2.0*tau1_car), (pdi - 2.0*tau2_car) / (2.0*tau1_car));
+
+	Tracking { carrier, carrier_step, d_carrier_radians_per_sample, code_len_samples: fs*1.0e-3, carrier_filter,
 		code_phase, code_dphase, input_signal_power: 0.0,
 		correlation_early:  Complex{re: 0.0, im: 0.0}, 
 		correlation_prompt: Complex{re: 0.0, im: 0.0}, 

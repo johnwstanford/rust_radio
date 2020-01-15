@@ -13,7 +13,7 @@ use rust_radio::io;
 use rust_radio::gnss::gps_l1_ca;
 use rust_radio::gnss::common::acquisition;
 use rust_radio::gnss::common::acquisition::Acquisition;
-use rust_radio::gnss::gps_l1_ca::tracking::algorithm_a;
+use rust_radio::gnss::gps_l1_ca::tracking::algorithm_dev;
 use rustfft::num_complex::Complex;
 
 fn main() {
@@ -48,18 +48,18 @@ fn main() {
 	eprintln!("Decoding {} at {} [samples/sec], max_records={:?}", &fname, &fs, &opt_max_records);
 
 	let symbol:Vec<i8> = gps_l1_ca::signal_modulation::prn_int_sampled(prn, fs);
-	let mut acq = acquisition::make_acquisition(symbol, fs, prn, 9, 17, 0.0);
+	let mut acq = acquisition::make_acquisition(symbol, fs, prn, 9, 500, 0.0);
 	
-	let mut trk = algorithm_a::new_default_tracker(prn, 0.0, fs);
+	let mut trk = algorithm_dev::new_default_tracker(prn, 0.0, fs);
 	let mut code_phase:usize = 0;
-	let mut all_results:Vec<algorithm_a::TrackingDebug> = vec![];
+	let mut all_results:Vec<algorithm_dev::TrackingDebug> = vec![];
 
 	'outer_acq: for s in io::file_source_i16_complex(&fname).map(|(x, idx)| (Complex{ re: x.0 as f64, im: x.1 as f64 }, idx)) {
 		acq.provide_sample(s).unwrap();
 		match acq.block_for_result(prn) {
 			Ok(Some(result)) => {
 				eprintln!("PRN {:02}: {:9.2} [Hz], {:6} [chips], {:.8}", prn, result.doppler_hz, result.code_phase, result.test_statistic());
-				trk = algorithm_a::new_default_tracker(prn, result.doppler_hz, fs);
+				trk = algorithm_dev::new_default_tracker(prn, result.doppler_hz, fs);
 				code_phase = result.code_phase;
 				break 'outer_acq;
 			},
@@ -74,10 +74,10 @@ fn main() {
 		if s.1 % 2000000 == 0 {
 			let debug = trk.debug();
 			match trk.state {
-				algorithm_a::TrackingState::WaitingForInitialLockStatus => eprintln!("WaitingForInitialLockStatus {}", format!("{:9.2} [Hz], {:.8}", debug.carrier_hz, debug.test_stat).yellow()),
-				algorithm_a::TrackingState::WaitingForFirstTransition   => eprintln!("WaitingForFirstTransition {}", format!("{:9.2} [Hz], {:.8}", debug.carrier_hz, debug.test_stat).yellow()),
-				algorithm_a::TrackingState::Tracking                    => eprintln!("Tracking {}", format!("{:9.2} [Hz], {:.8}", debug.carrier_hz, debug.test_stat).green()),
-				algorithm_a::TrackingState::LostLock                    => break 'outer_trk,
+				algorithm_dev::TrackingState::WaitingForInitialLockStatus => eprintln!("A: WaitingForInitialLockStatus {}", format!("{:9.2} [Hz], {:9.2}", debug.carrier_hz, debug.estimated_snr_coh).yellow()),
+				algorithm_dev::TrackingState::WaitingForFirstTransition   => eprintln!("A: WaitingForFirstTransition {}", format!("{:9.2} [Hz], {:9.2}", debug.carrier_hz, debug.estimated_snr_coh).yellow()),
+				algorithm_dev::TrackingState::Tracking                    => eprintln!("A: Tracking {}", format!("{:9.2} [Hz], {:9.2}", debug.carrier_hz, debug.estimated_snr_coh).green()),
+				algorithm_dev::TrackingState::LostLock                    => break 'outer_trk,
 			}
 			all_results.push(debug);
 			if let Some(max_records) = opt_max_records {

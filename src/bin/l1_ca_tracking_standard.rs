@@ -83,9 +83,9 @@ fn main() {
 			algorithm_standard::TrackingResult::Ok{ prompt_i, bit_idx } => {
 				let debug = trk.debug();
 				match trk.state {
-					algorithm_standard::TrackingState::WaitingForInitialLockStatus => eprintln!("B: WaitingForInitialLockStatus {}", format!("{:9.2} [Hz], {:14.3}", debug.carrier_hz, debug.estimated_snr_coh).yellow()),
-					algorithm_standard::TrackingState::WaitingForFirstTransition   => eprintln!("B: WaitingForFirstTransition {}", format!("{:9.2} [Hz], {:14.3}", debug.carrier_hz, debug.estimated_snr_coh).yellow()),
-					algorithm_standard::TrackingState::Tracking                    => eprintln!("B: Tracking {}", format!("{:9.2} [Hz], {:9.2}", debug.carrier_hz, debug.estimated_snr_coh).green()),
+					algorithm_standard::TrackingState::WaitingForInitialLockStatus => eprintln!("Std: WaitingForInitialLockStatus {}", format!("{:9.2} [Hz], {:14.3}", debug.carrier_hz, debug.estimated_snr_coh).yellow()),
+					algorithm_standard::TrackingState::WaitingForFirstTransition   => eprintln!("Std: WaitingForFirstTransition {}", format!("{:9.2} [Hz], {:14.3}", debug.carrier_hz, debug.estimated_snr_coh).yellow()),
+					algorithm_standard::TrackingState::Tracking                    => eprintln!("Std: Tracking {}", format!("{:9.2} [Hz], {:9.2}", debug.carrier_hz, debug.estimated_snr_coh).green()),
 				}
 				all_results.push(Result{ prompt_i, bit_idx, debug });
 				if let Some(max_records) = opt_max_records {

@@ -26,6 +26,7 @@ struct AcquisitionRecord {
 	pub code_phase:usize,
 	pub test_statistic:f64,
 	pub carrier_phase:f64,
+	pub sample_idx:usize,
 }
 
 fn main() {
@@ -60,8 +61,8 @@ fn main() {
 
 		let symbol:Vec<i8> = gps_l1_ca::signal_modulation::prn_int_sampled(prn, fs);
 		let pos_bit:Vec<i8> = (1..=20).map(|_| symbol.clone()).concat();
-		let neg_bit:Vec<i8> = pos_bit.iter().map(|a| -a).collect();
-		let pos_neg:Vec<i8> = vec![pos_bit, neg_bit].concat();
+		//let neg_bit:Vec<i8> = pos_bit.iter().map(|a| -a).collect();
+		let pos_neg:Vec<i8> = vec![pos_bit.clone(), pos_bit.clone()].concat();
 
 		acquisition::make_acquisition(pos_neg, fs, prn, 320, 2, 0.0, 0)
 
@@ -92,6 +93,7 @@ fn main() {
 						code_phase:        result.code_phase, 
 						test_statistic:    result.test_statistic(),
 						carrier_phase:     result.mf_response.arg(),
+						sample_idx:        s.1,
 					};
 
 					all_records.push(record)

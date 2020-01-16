@@ -34,8 +34,6 @@ pub struct Tracking {
 	pub state: TrackingState,
 	pub fs:f64,
 	pub local_code:Vec<Complex<f64>>,
-	last_coh_total_power:f64,
-	last_coh_noise_power:f64,
 }
 
 #[derive(Debug)]
@@ -60,15 +58,9 @@ pub struct TrackingDebug {
 	pub correlation_prompt_re:f64,
 	pub correlation_prompt_im:f64,
 	pub test_stat:f64,
-	pub estimated_snr_coh:f64,
 }
 
 impl Tracking {
-
-	pub fn estimated_snr_coh(&self) -> f64 {
-		if self.last_coh_total_power > 0.0 { (self.last_coh_total_power / self.last_coh_noise_power) - 1.0 } 
-		else { 0.0 }
-	}
 
 	pub fn debug(&self) -> TrackingDebug {
 		TrackingDebug {
@@ -78,11 +70,10 @@ impl Tracking {
 			correlation_prompt_re: self.correlation_prompt.re,
 			correlation_prompt_im: self.correlation_prompt.im,
 			test_stat: self.test_stat,
-			estimated_snr_coh: self.estimated_snr_coh(),
 		}
 	}
 
-	fn make_corrections(&mut self, early:Complex<f64>, prompt:Complex<f64>, late:Complex<f64>, num_symbols:f64) -> f64 {
+	fn coherent_process(&mut self, early:Complex<f64>, prompt:Complex<f64>, late:Complex<f64>, num_symbols:f64) -> f64 {
 		// Update carrier tracking
 		let angle_err:f64 = (prompt.im / prompt.re).atan();
 		self.d_carrier_radians_per_sample += angle_err / (self.code_len_samples * num_symbols);
@@ -94,12 +85,15 @@ impl Tracking {
 		let radial_velocity_factor = (1.57542e9 + carrier_hz) / 1.57542e9;
 		self.code_dphase = (radial_velocity_factor * 1.023e6) / self.fs;
 
-		let code_phase_correction = match (early.norm() - late.norm()) / (4.0*early.norm() - 8.0*prompt.norm() + 4.0*late.norm()) {
-			e if e >  0.2 =>  0.2,
-			e if e < -0.2 => -0.2,
-			e             =>  e,
-		};
+		let code_phase_correction = (early.norm() - late.norm()) / (4.0*early.norm() - 8.0*prompt.norm() + 4.0*late.norm());
 		self.code_phase += code_phase_correction;
+
+		// Envelope detection
+		self.test_stat = prompt.norm_sqr() / (self.input_signal_power * self.code_len_samples * num_symbols);
+		self.input_signal_power = 0.0;
+
+		// Normalize the carrier at the end of coherent processing interval
+		self.carrier = self.carrier.unscale(self.carrier.norm());
 
 		angle_err
 	}
@@ -157,14 +151,9 @@ impl Tracking {
 					let early     = self.early_buffer.back().unwrap().clone();
 					let prompt    = self.prompt_buffer.back().unwrap().clone();
 					let late      = self.late_buffer.back().unwrap().clone();
-					let angle_err = self.make_corrections(early, prompt, late, 1.0);
+					let angle_err = self.coherent_process(early, prompt, late, 1.0);
 
-					// Record the prompt test statistic
-					self.test_stat = prompt.norm_sqr() / (self.input_signal_power * self.code_len_samples);
-					if self.test_stat < 0.0005 {
-						self.state = TrackingState::LostLock;
-					}
-					self.input_signal_power = 0.0;
+					if self.test_stat < 0.0005 { self.state = TrackingState::LostLock; }
 
 					// Determine whether to transition to normal tracking state
 					let (found_transition, back_pos) = match (self.prompt_buffer.front(), self.prompt_buffer.back()) {
@@ -186,27 +175,13 @@ impl Tracking {
 				},
 				TrackingState::Tracking => if self.prompt_buffer.len() >= 20 { 
 
-					// Save coherent SNR components
-					self.last_coh_total_power = (&self.prompt_buffer).into_iter().map(|x| x.norm_sqr()).sum();
-					self.last_coh_noise_power = (&self.prompt_buffer).into_iter().map(|x| 2.0 * x.im.powi(2)).sum();
-
 					let early:Complex<f64>  = self.early_buffer.drain(..).sum();
 					let prompt:Complex<f64> = self.prompt_buffer.drain(..).sum();
 					let late:Complex<f64>   = self.late_buffer.drain(..).sum();
+					self.coherent_process(early, prompt, late, 20.0);
 
-					self.make_corrections(early, prompt, late, 20.0);
+					if self.test_stat < 0.00005 { self.state = TrackingState::LostLock; }
 
-					// Record the prompt test statistic
-					self.test_stat = prompt.norm_sqr() / (self.input_signal_power * self.code_len_samples);
-					if self.test_stat < 0.0005 {
-						self.state = TrackingState::LostLock;
-					}
-					self.input_signal_power = 0.0;
-
-					// Normalize the carrier at the end of every bit, which is every 20 ms
-					self.carrier = self.carrier.unscale(self.carrier.norm());
-
-					// We have enough prompts to build a bit
 					return TrackingResult::Ok{ prompt_i:prompt.re, bit_idx: sample.1};
 				},
 				TrackingState::LostLock => { return TrackingResult::Err(DigSigProcErr::LossOfLock); },
@@ -243,6 +218,6 @@ pub fn new_default_tracker(prn:usize, acq_freq_hz:f64, fs:f64) -> Tracking {
 		late_buffer: VecDeque::new(), 
 		test_stat: 0.0,
 		state: TrackingState::SeekingBitTransition,
-		fs, local_code, last_coh_total_power: 0.0, last_coh_noise_power: 0.0,
+		fs, local_code,
 	}		
 }

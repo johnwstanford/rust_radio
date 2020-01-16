@@ -57,8 +57,8 @@ fn main() {
 
 	let symbol:Vec<i8> = gps_l1_ca::signal_modulation::prn_int_sampled(prn, fs);
 
-	// 2 [Hz] resolution on acquisition; we're only doing this once and we want to give the tracking block the best start possible
-	let mut acq = acquisition::make_acquisition(symbol, fs, prn, 9, 500, 0.0, 0);
+	// 1 [Hz] resolution on acquisition; we're only doing this once and we want to give the tracking block the best start possible
+	let mut acq = acquisition::make_acquisition(symbol, fs, prn, 9, 1000, 0.0, 0);
 	let mut trk = algorithm_standard::new_default_tracker(prn, 0.0, fs, 40.0, 4.0);
 	let mut code_phase:usize = 0;
 	let mut all_results:Vec<Result> = vec![];

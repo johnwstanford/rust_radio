@@ -28,8 +28,8 @@ struct SubframeWithMetadata {
 	cn0_snv_db_hz:f64,
 	carrier_lock_test:f64,
 	acq_test_stat:f64,
+	trk_test_stat:f64,
 	prn:usize,
-	snr_coh:f64,
 }
 
 fn main() {
@@ -76,8 +76,8 @@ fn main() {
 						cn0_snv_db_hz:     chn.last_cn0_snv_db_hz(),
 						carrier_lock_test: chn.last_carrier_lock_test(),
 						acq_test_stat:     chn.last_acq_test_stat(),
-						prn:               chn.prn,
-						snr_coh:           chn.estimated_snr_coh() };
+						trk_test_stat:     chn.test_stat(),
+						prn:               chn.prn };
 					all_results.push(sf_with_metadata);
 				},
 				channel::ChannelResult::Err(e) => eprintln!("{}", format!("PRN {}: Error due to {:?}", chn.prn, e).red()),

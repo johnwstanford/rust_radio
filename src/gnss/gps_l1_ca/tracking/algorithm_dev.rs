@@ -153,7 +153,8 @@ impl Tracking {
 					let late      = self.late_buffer.back().unwrap().clone();
 					let angle_err = self.coherent_process(early, prompt, late, 1.0);
 
-					if self.test_stat < 0.0005 { self.state = TrackingState::LostLock; }
+					// Don't declare a loss of lock without a full buffer
+					if self.test_stat < 0.0005 && self.prompt_buffer.len() >= 20 { self.state = TrackingState::LostLock; }
 
 					// Determine whether to transition to normal tracking state
 					let (found_transition, back_pos) = match (self.prompt_buffer.front(), self.prompt_buffer.back()) {

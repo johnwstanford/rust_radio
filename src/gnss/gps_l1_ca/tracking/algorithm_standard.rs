@@ -12,29 +12,11 @@ use ::filters;
 use ::gnss::gps_l1_ca;
 use ::DigSigProcErr;
 
+// Design SNR is 0.035 (-14.56 [dB])
+// H0 test_stat follows an exponential distribution w loc=1.38e-09, scale=5.00e-04
+// H1 test_stat follows a beta distribution w a=1.26e+01, b=1.25e+02, loc=-1.81e-03, scale=1.20e-01
+
 // Lock detection
-fn cn0_svn_estimator(prompt_buffer:&VecDeque<Complex<f64>>, coh_integration_time_s:f64) -> f64 {
-	let n:f64 = prompt_buffer.len() as f64;
-	let p_sig:f64 = {
-		let sum:f64 = prompt_buffer.into_iter().map(|c| c.re.abs() ).sum();
-		(sum / n).powi(2)
-	};
-	let p_tot:f64 = {
-		let sum:f64 = prompt_buffer.into_iter().map(|c| c.re*c.re + c.im*c.im).sum();
-		sum / n
-	};
-	let snr = p_sig / (p_tot - p_sig);
-	10.0 * snr.log10() - 10.0 * coh_integration_time_s.log10()
-}
-
-fn carrier_lock_detector(prompt_buffer:&VecDeque<Complex<f64>>) -> f64 {
-    let tmp_sum_i:f64 = prompt_buffer.into_iter().map(|c| c.re).sum();
-    let tmp_sum_q:f64 = prompt_buffer.into_iter().map(|c| c.im).sum();
-    let nbp:f64 = tmp_sum_i * tmp_sum_i + tmp_sum_q * tmp_sum_q;
-    let nbd:f64 = tmp_sum_i * tmp_sum_i - tmp_sum_q * tmp_sum_q;
-    nbd / nbp
-}
-
 pub struct Tracking {
 	carrier: Complex<f64>,
 	carrier_inc: Complex<f64>,
@@ -44,9 +26,6 @@ pub struct Tracking {
 
 	carrier_filter: filters::SecondOrderFIR,
 	code_filter: filters::SecondOrderFIR,
-
-	lock_fail_count: usize,
-	lock_fail_limit: usize,
 
 	sum_early:  Complex<f64>,
 	sum_prompt: Complex<f64>,
@@ -61,10 +40,6 @@ pub struct Tracking {
 	pub state: TrackingState,
 	pub fs:f64,
 	pub local_code:Vec<Complex<f64>>,
-	pub threshold_carrier_lock_test:f64,
-	pub threshold_cn0_snv_db_hz:f64,
-	last_cn0_snv_db_hz:f64,
-	last_carrier_lock_test:f64,
 }
 
 #[derive(Debug)]
@@ -94,9 +69,6 @@ pub struct TrackingDebug {
 
 impl Tracking {
 
-	pub fn last_cn0_snv_db_hz(&self) -> f64 { self.last_cn0_snv_db_hz }
-	pub fn last_carrier_lock_test(&self) -> f64 { self.last_carrier_lock_test }
-
 	pub fn carrier_freq_hz(&self) -> f64 { (self.carrier_dphase_rad * self.fs) / (2.0 * consts::PI) }
 	pub fn carrier_phase_rad(&self) -> f64 { self.carrier.arg() }
 	pub fn code_phase_samples(&self) -> f64 { self.code_phase }
@@ -110,12 +82,6 @@ impl Tracking {
 			correlation_prompt_im: self.sum_prompt.im,
 			test_stat: self.test_stat,
 		}
-	}
-
-	fn cn0_and_tracking_lock_status(&mut self) -> bool {
-		self.last_cn0_snv_db_hz = cn0_svn_estimator(&self.prompt_buffer, 0.001);
-		self.last_carrier_lock_test = carrier_lock_detector(&self.prompt_buffer);
-		(self.last_carrier_lock_test >= self.threshold_carrier_lock_test) && (self.last_cn0_snv_db_hz >= self.threshold_cn0_snv_db_hz)
 	}
 
 	// Public interface
@@ -179,9 +145,15 @@ impl Tracking {
 				while self.prompt_buffer.len() > 20 { self.prompt_buffer.pop_front(); }
 				
 				if let Some(test_stat) = self.test_stat_buffer.last() {
-					if self.prompt_buffer.len() >= 20 && *test_stat > 0.008 { 			// test_stat=0.008 => SNR = -0.008 / ln(0.5) = 0.01154
+					if self.prompt_buffer.len() >= 20 && *test_stat > 0.008 { 		
+						// If the signal is not present, each coherent interval has a 9.9999988871e-01 chance of staying under this threshold
+						// If the signal is present,     each coherent interval has a 3.7330000000e-01 chance of staying under this threshold
+						// So if the signal is present, it should only take 3 or 4 tries to exceed this threshold
 						self.state = TrackingState::WaitingForFirstTransition;
-					} else if self.prompt_buffer.len() >= 20 && *test_stat < 8.0e-6 {	// test_stat = -SNR * ln(0.999) = 8.0e-6, so if we lose the lock and use a threshold of 8.0e-6, then on average, we'll waste 1 [sec]
+					} else if self.prompt_buffer.len() >= 20 && *test_stat < 5.0e-7 {	
+						// If the signal is not present, each coherent interval has a 9.974e-04 chance of staying under this threshold
+						// If the signal is present,     each coherent interval has a 4.543e-07 chance of staying under this threshold
+						// If the signal is not present, we should on average only waste about 1 [sec] trying to track it
 						self.state = TrackingState::LostLock;
 						return TrackingResult::Err(DigSigProcErr::LossOfLock);
 					}
@@ -218,11 +190,8 @@ impl Tracking {
 					let test_stat_buffer_sum:f64 = self.test_stat_buffer.drain(..).sum();
 					self.test_stat = test_stat_buffer_sum / test_stat_buffer_len;
 
-					if !self.cn0_and_tracking_lock_status() { self.lock_fail_count += 1; }
-					else if self.lock_fail_count > 0 { self.lock_fail_count -= 1; }
-
 					// Either return an error or the next bit
-					if self.lock_fail_count > self.lock_fail_limit { 
+					if self.test_stat < 0.001 { 	// No statistical justification for this yet
 						self.state = TrackingState::LostLock;
 						TrackingResult::Err(DigSigProcErr::LossOfLock) 
 					} else {
@@ -251,18 +220,14 @@ impl Tracking {
 		self.carrier_filter.initialize();
 		self.code_filter.initialize();
 
-		self.lock_fail_count = 0;
-
 		self.prompt_buffer.clear();
 		self.sum_early  = Complex{ re: 0.0, im: 0.0};
 		self.sum_prompt = Complex{ re: 0.0, im: 0.0};
 		self.sum_late   = Complex{ re: 0.0, im: 0.0};
 
 		self.state = TrackingState::WaitingForInitialLockStatus;
-		self.last_cn0_snv_db_hz = 0.0;
-		self.last_carrier_lock_test = 0.0;
-
-		// Leave lock_fail_limit, fs, local_code, threshold_carrier_lock_test, and threshold_cn0_snv_db_hz as is
+		
+		// Leave fs and local_code as is
 	}
 
 }
@@ -295,11 +260,9 @@ pub fn new_default_tracker(prn:usize, acq_freq_hz:f64, fs:f64, bw_pll_hz:f64, bw
 	Tracking { carrier, carrier_inc, carrier_dphase_rad, 
 		code_phase, code_dphase,
 		carrier_filter, code_filter, code_len_samples,
-		lock_fail_count: 0, lock_fail_limit: 50, 
 		sum_early: Complex{re: 0.0, im: 0.0}, sum_prompt: Complex{re: 0.0, im: 0.0}, sum_late: Complex{re: 0.0, im: 0.0}, 
 		input_signal_power: 0.0, prompt_buffer: VecDeque::new(), test_stat_buffer: vec![],
 		state: TrackingState::WaitingForInitialLockStatus,
-		fs, local_code, threshold_carrier_lock_test: 0.8, threshold_cn0_snv_db_hz: 30.0,
-		last_cn0_snv_db_hz: 0.0, last_carrier_lock_test: 0.0, test_stat: 0.0, 
+		fs, local_code, test_stat: 0.0, 
 	}		
 }

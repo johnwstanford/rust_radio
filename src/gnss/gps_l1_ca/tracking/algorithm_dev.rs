@@ -154,7 +154,7 @@ impl Tracking {
 					let angle_err = self.coherent_process(early, prompt, late, 1.0);
 
 					// Don't declare a loss of lock without a full buffer
-					if self.test_stat < 0.0005 && self.prompt_buffer.len() >= 20 { self.state = TrackingState::LostLock; }
+					if self.test_stat < 8.0e-6 && self.prompt_buffer.len() >= 20 { self.state = TrackingState::LostLock; }
 
 					// Determine whether to transition to normal tracking state
 					let (found_transition, back_pos) = match (self.prompt_buffer.front(), self.prompt_buffer.back()) {
@@ -162,7 +162,7 @@ impl Tracking {
 						(_, _) => (false, false)
 					};
 
-					if found_transition && angle_err < 0.01 {
+					if found_transition && angle_err < 0.008 {
 						// We've found the first transition, get rid of everything before the transition
 						while self.prompt_buffer.get(0).map(|c| c.re > 0.0) != Some(back_pos) {
 							self.early_buffer.pop_front();

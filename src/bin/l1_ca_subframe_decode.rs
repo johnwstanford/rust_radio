@@ -25,8 +25,6 @@ const NUM_ACTIVE_CHANNELS:usize = 7;
 struct SubframeWithMetadata {
 	subframe: SF,
 	carrier_freq_hz:f64,
-	cn0_snv_db_hz:f64,
-	carrier_lock_test:f64,
 	acq_test_stat:f64,
 	trk_test_stat:f64,
 	prn:usize,
@@ -73,8 +71,6 @@ fn main() {
 					eprintln!("New Subframe: {}", format!("{:?}", subframe).blue());
 					let sf_with_metadata = SubframeWithMetadata{ subframe, 
 						carrier_freq_hz:   chn.carrier_freq_hz(), 
-						cn0_snv_db_hz:     chn.last_cn0_snv_db_hz(),
-						carrier_lock_test: chn.last_carrier_lock_test(),
 						acq_test_stat:     chn.last_acq_test_stat(),
 						trk_test_stat:     chn.test_stat(),
 						prn:               chn.prn };

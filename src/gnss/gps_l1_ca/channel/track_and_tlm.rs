@@ -72,8 +72,6 @@ impl Channel {
 
 	// Read-only getter methods
 	pub fn carrier_freq_hz(&self) -> f64 { self.trk.carrier_freq_hz() }
-	pub fn last_cn0_snv_db_hz(&self) -> f64 { self.trk.last_cn0_snv_db_hz() }
-	pub fn last_carrier_lock_test(&self) -> f64 { self.trk.last_carrier_lock_test() }
 	pub fn test_stat(&self) -> f64 { self.trk.test_stat }
 
 	pub fn last_acq_doppler(&self) -> f64 { self.last_acq_doppler }

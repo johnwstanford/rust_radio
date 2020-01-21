@@ -38,7 +38,7 @@ pub struct Tracking {
 	sum_prompt: Complex<f64>,
 	sum_late:   Complex<f64>,
 	prompt_buffer: VecDeque<Complex<f64>>,
-	input_power_buffer: Vec<f64>,
+	input_power_buffer: VecDeque<f64>,
 
 	code_len_samples: f64,
 	input_signal_power: f64,
@@ -133,7 +133,7 @@ impl Tracking {
 
 			// Add this prompt value to the buffer
 			self.prompt_buffer.push_back(self.sum_prompt);
-			self.input_power_buffer.push(self.input_signal_power);
+			self.input_power_buffer.push_back(self.input_signal_power);
 
 			// Limit the size of the buffers to 20
 			while self.prompt_buffer.len()      > 20 { self.prompt_buffer.pop_front();      }
@@ -264,7 +264,7 @@ pub fn new_default_tracker(prn:usize, acq_freq_hz:f64, fs:f64, bw_pll_hz:f64, bw
 		code_phase, code_dphase,
 		carrier_filter, code_filter, code_len_samples,
 		sum_early: Complex{re: 0.0, im: 0.0}, sum_prompt: Complex{re: 0.0, im: 0.0}, sum_late: Complex{re: 0.0, im: 0.0}, 
-		input_signal_power: 0.0, prompt_buffer: VecDeque::new(), input_power_buffer: vec![],
+		input_signal_power: 0.0, prompt_buffer: VecDeque::new(), input_power_buffer: VecDeque::new(),
 		state: TrackingState::WaitingForInitialLockStatus,
 		fs, local_code, test_stat: 0.0, 
 	}		

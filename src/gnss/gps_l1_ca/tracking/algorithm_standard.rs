@@ -13,8 +13,11 @@ use ::gnss::gps_l1_ca;
 use ::DigSigProcErr;
 
 // Design SNR is 0.035 (-14.56 [dB])
-// H0 test_stat follows an exponential distribution w loc=1.38e-09, scale=5.00e-04
-// H1 test_stat follows a beta distribution w a=1.26e+01, b=1.25e+02, loc=-1.81e-03, scale=1.20e-01
+// H0 short test_stat follows an exponential distribution w loc=1.38e-09, scale=5.00e-04
+// H1 short test_stat follows a beta distribution w a=1.26e+01, b=1.25e+02, loc=-1.81e-03, scale=1.20e-01
+
+// H0 long test_stat follows an exponential distribution w loc=2.27e-09, scale=2.52e-05
+// H1 long test_stat follows a beta distribution w a=2.07e+02, b=2.25e+06, loc=-6.96e-04, scale=1.03e+02
 
 // Lock detection
 pub struct Tracking {
@@ -31,7 +34,7 @@ pub struct Tracking {
 	sum_prompt: Complex<f64>,
 	sum_late:   Complex<f64>,
 	prompt_buffer: VecDeque<Complex<f64>>,
-	test_stat_buffer: Vec<f64>,
+	input_power_buffer: Vec<f64>,
 
 	code_len_samples: f64,
 	input_signal_power: f64,
@@ -126,9 +129,10 @@ impl Tracking {
 
 			// Add this prompt value to the buffer
 			self.prompt_buffer.push_back(self.sum_prompt);
+			self.input_power_buffer.push(self.input_signal_power);
 
 			// Record the test statistic for this coherent processing interval
-			self.test_stat_buffer.push(self.sum_prompt.norm_sqr() / (self.input_signal_power * self.code_len_samples));
+			self.test_stat = self.sum_prompt.norm_sqr() / (self.input_signal_power * self.code_len_samples);
 			self.input_signal_power = 0.0;
 
 			// Reset the sum accumulators for the next prompt
@@ -144,13 +148,13 @@ impl Tracking {
 				// TODO: make this a variable
 				while self.prompt_buffer.len() > 20 { self.prompt_buffer.pop_front(); }
 				
-				if let Some(test_stat) = self.test_stat_buffer.last() {
-					if self.prompt_buffer.len() >= 20 && *test_stat > 0.008 { 		
+				if self.prompt_buffer.len() >= 20 {
+					if self.test_stat > 0.008 { 		
 						// If the signal is not present, each coherent interval has a 9.9999988871e-01 chance of staying under this threshold
 						// If the signal is present,     each coherent interval has a 3.7330000000e-01 chance of staying under this threshold
 						// So if the signal is present, it should only take 3 or 4 tries to exceed this threshold
 						self.state = TrackingState::WaitingForFirstTransition;
-					} else if self.prompt_buffer.len() >= 20 && *test_stat < 5.0e-7 {	
+					} else if self.test_stat < 5.0e-7 {	
 						// If the signal is not present, each coherent interval has a 9.974e-04 chance of staying under this threshold
 						// If the signal is present,     each coherent interval has a 4.543e-07 chance of staying under this threshold
 						// If the signal is not present, we should on average only waste about 1 [sec] trying to track it
@@ -159,7 +163,6 @@ impl Tracking {
 					}
 				}
 
-				TrackingResult::NotReady
 			},
 			TrackingState::WaitingForFirstTransition => {
 				let (found_transition, back_pos) = match (self.prompt_buffer.front(), self.prompt_buffer.back()) {
@@ -178,33 +181,32 @@ impl Tracking {
 					}
 				} 
 
-				TrackingResult::NotReady
 			},
-			TrackingState::Tracking => {
-				if self.prompt_buffer.len() >= 20 { 
-					// Normalize the carrier at the end of every bit, which is every 20 ms
-					self.carrier = self.carrier / self.carrier.norm();
+			TrackingState::Tracking => if self.prompt_buffer.len() >= 20 { 
+				let this_bit:Complex<f64> = self.prompt_buffer.drain(..20).fold(Complex{ re: 0.0, im: 0.0 }, |a,b| a+b);
 
-					// Check the quality of the lock
-					let test_stat_buffer_len:f64 = self.test_stat_buffer.len() as f64;
-					let test_stat_buffer_sum:f64 = self.test_stat_buffer.drain(..).sum();
-					self.test_stat = test_stat_buffer_sum / test_stat_buffer_len;
+				// Normalize the carrier at the end of every bit, which is every 20 ms
+				self.carrier = self.carrier / self.carrier.norm();
 
-					// Either return an error or the next bit
-					if self.test_stat < 0.001 { 	// No statistical justification for this yet
-						self.state = TrackingState::LostLock;
-						TrackingResult::Err(DigSigProcErr::LossOfLock) 
-					} else {
-						// We have enough prompts to build a bit
-						let this_bit_re:f64 = self.prompt_buffer.drain(..20).map(|c| c.re).fold(0.0, |a,b| a+b);
-						TrackingResult::Ok{ prompt_i:this_bit_re, bit_idx: sample.1} 
-					}
-				} else { TrackingResult::NotReady }
+				// Check the quality of the lock
+				let total_input_power:f64 = self.input_power_buffer.drain(..20).sum();
+				self.test_stat = this_bit.norm_sqr() / (total_input_power * self.code_len_samples * 20.0);
 
+				// Either return an error or the next bit
+				if self.test_stat < 0.001 { 	
+					// For a long coherent processing interval, we should be over this threshold under H0 or under this
+					// threshold with H1 with a vanishingly small likelihood, i.e. this should be a very good indicator of 
+					// the lock status without any need for other filtering or anything like that
+					self.state = TrackingState::LostLock;
+					return TrackingResult::Err(DigSigProcErr::LossOfLock);
+				} else { 
+					return TrackingResult::Ok{ prompt_i:this_bit.re, bit_idx: sample.1};
+				}
 			},
-			TrackingState::LostLock => TrackingResult::Err(DigSigProcErr::LossOfLock),
+			TrackingState::LostLock => return TrackingResult::Err(DigSigProcErr::LossOfLock),
 		}
 		
+		TrackingResult::NotReady
 	}
 
 	pub fn initialize(&mut self, acq_freq_hz:f64) {
@@ -261,7 +263,7 @@ pub fn new_default_tracker(prn:usize, acq_freq_hz:f64, fs:f64, bw_pll_hz:f64, bw
 		code_phase, code_dphase,
 		carrier_filter, code_filter, code_len_samples,
 		sum_early: Complex{re: 0.0, im: 0.0}, sum_prompt: Complex{re: 0.0, im: 0.0}, sum_late: Complex{re: 0.0, im: 0.0}, 
-		input_signal_power: 0.0, prompt_buffer: VecDeque::new(), test_stat_buffer: vec![],
+		input_signal_power: 0.0, prompt_buffer: VecDeque::new(), input_power_buffer: vec![],
 		state: TrackingState::WaitingForInitialLockStatus,
 		fs, local_code, test_stat: 0.0, 
 	}		

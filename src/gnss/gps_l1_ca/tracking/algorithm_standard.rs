@@ -34,14 +34,23 @@ pub struct Tracking {
 	carrier_filter: filters::SecondOrderFIR,
 	code_filter: filters::SecondOrderFIR,
 
+	// Used during summation over the short interval
 	sum_early:  Complex<f64>,
 	sum_prompt: Complex<f64>,
 	sum_late:   Complex<f64>,
+	input_signal_power: f64,
+
+	// Used to determine whether to transition from short to long integration
+	prompt0: Complex<f64>,
+	prompt1: Complex<f64>,
+	input_power0: f64,
+	input_power1: f64,
+
+	// Used during summation over the lond interval
 	prompt_buffer: VecDeque<Complex<f64>>,
 	input_power_buffer: VecDeque<f64>,
 
 	code_len_samples: f64,
-	input_signal_power: f64,
 	pub test_stat:f64,
 
 	pub state: TrackingState,
@@ -140,6 +149,14 @@ impl Tracking {
 			// Match on the current state.
 			match self.state {
 				TrackingState::WaitingForInitialLockStatus => {
+					self.prompt0      = self.prompt1;
+					self.prompt1      = self.sum_prompt;
+					self.input_power0 = self.input_power1;
+					self.input_power1 = self.input_signal_power;
+
+					let test_stat0 = self.prompt0.norm_sqr() / (self.input_power0 * self.code_len_samples);
+					let test_stat1 = self.prompt1.norm_sqr() / (self.input_power1 * self.code_len_samples);
+
 					// Add this prompt value to the buffer
 					self.prompt_buffer.push_back(self.sum_prompt);
 					self.input_power_buffer.push_back(self.input_signal_power);
@@ -151,7 +168,7 @@ impl Tracking {
 					if self.prompt_buffer.len() >= 2 {
 
 						// Record the test statistic for this short coherent processing interval
-						self.test_stat = self.sum_prompt.norm_sqr() / (self.input_signal_power * self.code_len_samples);
+						self.test_stat = test_stat1;
 
 						if self.test_stat > SHORT_COH_THRESH_PROMOTE_TO_LONG { 		
 							// If the signal is not present, each coherent interval has a 9.9999988871e-01 chance of staying under this threshold
@@ -240,6 +257,11 @@ impl Tracking {
 		self.sum_prompt = Complex{ re: 0.0, im: 0.0};
 		self.sum_late   = Complex{ re: 0.0, im: 0.0};
 
+		self.prompt0 = Complex{re: 0.0, im: 0.0};
+		self.prompt1 = Complex{re: 0.0, im: 0.0};
+		self.input_power0 = 1.0;
+		self.input_power1 = 1.0;
+
 		self.state = TrackingState::WaitingForInitialLockStatus;
 		
 		// Leave fs and local_code as is
@@ -276,6 +298,10 @@ pub fn new_default_tracker(prn:usize, acq_freq_hz:f64, fs:f64, bw_pll_hz:f64, bw
 		code_phase, code_dphase,
 		carrier_filter, code_filter, code_len_samples,
 		sum_early: Complex{re: 0.0, im: 0.0}, sum_prompt: Complex{re: 0.0, im: 0.0}, sum_late: Complex{re: 0.0, im: 0.0}, 
+		prompt0: Complex{re: 0.0, im: 0.0},
+		prompt1: Complex{re: 0.0, im: 0.0},
+		input_power0: 1.0,
+		input_power1: 1.0,
 		input_signal_power: 0.0, prompt_buffer: VecDeque::new(), input_power_buffer: VecDeque::new(),
 		state: TrackingState::WaitingForInitialLockStatus,
 		fs, local_code, test_stat: 0.0, 

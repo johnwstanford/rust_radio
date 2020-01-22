@@ -156,42 +156,22 @@ impl Tracking {
 
 					let test_stat0 = self.prompt0.norm_sqr() / (self.input_power0 * self.code_len_samples);
 					let test_stat1 = self.prompt1.norm_sqr() / (self.input_power1 * self.code_len_samples);
+					self.test_stat = test_stat1;
 
-					// Add this prompt value to the buffer
-					self.prompt_buffer.push_back(self.sum_prompt);
-					self.input_power_buffer.push_back(self.input_signal_power);
-
-					// Limit the size of the buffers to 2
-					while self.prompt_buffer.len()      > 2 { self.prompt_buffer.pop_front();      }
-					while self.input_power_buffer.len() > 2 { self.input_power_buffer.pop_front(); }
-						
-					if self.prompt_buffer.len() >= 2 {
-
-						// Record the test statistic for this short coherent processing interval
-						self.test_stat = test_stat1;
-
-						if self.test_stat > SHORT_COH_THRESH_PROMOTE_TO_LONG { 		
-							// If the signal is not present, each coherent interval has a 9.9999988871e-01 chance of staying under this threshold
-							// If the signal is present,     each coherent interval has a 3.7330000000e-01 chance of staying under this threshold
-							// So if the signal is present, it should only take 3 or 4 tries to exceed this threshold
-							let found_transition = match (self.prompt_buffer.front(), self.prompt_buffer.back()) {
-								(Some(front), Some(back)) => (front.re > 0.0) != (back.re > 0.0),
-								_ => false
-							};
-		
-							if found_transition {
-								self.input_power_buffer.pop_front();
-								self.prompt_buffer.pop_front();
-								self.state = TrackingState::Tracking;
-							} 
-						} else if self.test_stat < SHORT_COH_THRESH_LOSS_OF_LOCK {	
-							// If the signal is not present, each coherent interval has a 9.974e-04 chance of staying under this threshold
-							// If the signal is present,     each coherent interval has a 4.543e-07 chance of staying under this threshold
-							// If the signal is not present, we should on average only waste about 1 [sec] trying to track it
-							self.state = TrackingState::LostLock;
-							self.reset_short_interval_sums();
-							return TrackingResult::Err(DigSigProcErr::LossOfLock);
-						}
+					if test_stat0 > SHORT_COH_THRESH_PROMOTE_TO_LONG && test_stat1 > SHORT_COH_THRESH_PROMOTE_TO_LONG && (self.prompt0.re > 0.0) != (self.prompt1.re > 0.0) { 		
+						// If the signal is not present, each coherent interval has a 9.9999988871e-01 chance of staying under this threshold
+						// If the signal is present,     each coherent interval has a 3.7330000000e-01 chance of staying under this threshold
+						// So if the signal is present, it should only take about 10 tries to exceed this threshold
+						self.prompt_buffer.push_back(self.prompt1);
+						self.input_power_buffer.push_back(self.input_power1);
+						self.state = TrackingState::Tracking;
+					} else if test_stat1 < SHORT_COH_THRESH_LOSS_OF_LOCK {	
+						// If the signal is not present, each coherent interval has a 9.974e-04 chance of staying under this threshold
+						// If the signal is present,     each coherent interval has a 4.543e-07 chance of staying under this threshold
+						// If the signal is not present, we should on average only waste about 1 [sec] trying to track it
+						self.state = TrackingState::LostLock;
+						self.reset_short_interval_sums();
+						return TrackingResult::Err(DigSigProcErr::LossOfLock);
 					}
 				},
 				TrackingState::Tracking => {

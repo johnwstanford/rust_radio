@@ -144,11 +144,11 @@ impl Tracking {
 					self.prompt_buffer.push_back(self.sum_prompt);
 					self.input_power_buffer.push_back(self.input_signal_power);
 
-					// Limit the size of the buffers to 20
-					while self.prompt_buffer.len()      > 20 { self.prompt_buffer.pop_front();      }
-					while self.input_power_buffer.len() > 20 { self.input_power_buffer.pop_front(); }
+					// Limit the size of the buffers to 2
+					while self.prompt_buffer.len()      > 2 { self.prompt_buffer.pop_front();      }
+					while self.input_power_buffer.len() > 2 { self.input_power_buffer.pop_front(); }
 						
-					if self.prompt_buffer.len() >= 20 {
+					if self.prompt_buffer.len() >= 2 {
 
 						// Record the test statistic for this short coherent processing interval
 						self.test_stat = self.sum_prompt.norm_sqr() / (self.input_signal_power * self.code_len_samples);
@@ -157,20 +157,15 @@ impl Tracking {
 							// If the signal is not present, each coherent interval has a 9.9999988871e-01 chance of staying under this threshold
 							// If the signal is present,     each coherent interval has a 3.7330000000e-01 chance of staying under this threshold
 							// So if the signal is present, it should only take 3 or 4 tries to exceed this threshold
-							let (found_transition, back_pos) = match (self.prompt_buffer.front(), self.prompt_buffer.back()) {
-								(Some(front), Some(back)) => ((front.re > 0.0) != (back.re > 0.0), back.re > 0.0),
-								(_, _) => (false, false)
+							let found_transition = match (self.prompt_buffer.front(), self.prompt_buffer.back()) {
+								(Some(front), Some(back)) => (front.re > 0.0) != (back.re > 0.0),
+								_ => false
 							};
 		
 							if found_transition {
-								// We've found the first transition, get rid of everything before the transition
-								self.prompt_buffer.retain(|c| (c.re > 0.0) == back_pos);
-		
-								if self.prompt_buffer.len() > 0 {
-									self.state = TrackingState::Tracking;
-								} else {
-									panic!("Somehow ended up with an empty prompt buffer after detecting the first transition");
-								}
+								self.input_power_buffer.pop_front();
+								self.prompt_buffer.pop_front();
+								self.state = TrackingState::Tracking;
 							} 
 						} else if self.test_stat < SHORT_COH_THRESH_LOSS_OF_LOCK {	
 							// If the signal is not present, each coherent interval has a 9.974e-04 chance of staying under this threshold

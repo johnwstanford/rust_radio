@@ -84,7 +84,6 @@ fn main() {
 				let debug = trk.debug();
 				match trk.state {
 					algorithm_standard::TrackingState::WaitingForInitialLockStatus => eprintln!("Std: WaitingForInitialLockStatus {}", format!("{:9.2} [Hz] {:10.6}", debug.carrier_hz, trk.test_stat).yellow()),
-					algorithm_standard::TrackingState::WaitingForFirstTransition   => eprintln!("Std: WaitingForFirstTransition {}", format!("{:9.2} [Hz] {:10.6}", debug.carrier_hz, trk.test_stat).yellow()),
 					algorithm_standard::TrackingState::Tracking                    => eprintln!("Std: Tracking {}", format!("{:9.2} [Hz] {:10.6}", debug.carrier_hz, trk.test_stat).green()),
 					algorithm_standard::TrackingState::LostLock                    => eprintln!("Std: Lost Lock {}", format!("{:9.2} [Hz] {:10.6}", debug.carrier_hz, trk.test_stat).red()),
 				}

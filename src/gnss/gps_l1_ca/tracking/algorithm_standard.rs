@@ -52,7 +52,6 @@ pub struct Tracking {
 #[derive(Debug)]
 pub enum TrackingState {
 	WaitingForInitialLockStatus,
-	WaitingForFirstTransition,
 	Tracking,
 	LostLock,
 }
@@ -147,66 +146,66 @@ impl Tracking {
 			self.sum_early  = Complex{ re: 0.0, im: 0.0};
 			self.sum_prompt = Complex{ re: 0.0, im: 0.0};
 			self.sum_late   = Complex{ re: 0.0, im: 0.0};
-		}
 
-		// Match on the current state.
-		match self.state {
-			TrackingState::WaitingForInitialLockStatus => if self.prompt_buffer.len() >= 20 {
-				if self.test_stat > SHORT_COH_THRESH_PROMOTE_TO_LONG { 		
-					// If the signal is not present, each coherent interval has a 9.9999988871e-01 chance of staying under this threshold
-					// If the signal is present,     each coherent interval has a 3.7330000000e-01 chance of staying under this threshold
-					// So if the signal is present, it should only take 3 or 4 tries to exceed this threshold
-					self.state = TrackingState::WaitingForFirstTransition;
-				} else if self.test_stat < SHORT_COH_THRESH_LOSS_OF_LOCK {	
-					// If the signal is not present, each coherent interval has a 9.974e-04 chance of staying under this threshold
-					// If the signal is present,     each coherent interval has a 4.543e-07 chance of staying under this threshold
-					// If the signal is not present, we should on average only waste about 1 [sec] trying to track it
-					self.state = TrackingState::LostLock;
-					return TrackingResult::Err(DigSigProcErr::LossOfLock);
-				}
-			},
-			TrackingState::WaitingForFirstTransition => {
-				let (found_transition, back_pos) = match (self.prompt_buffer.front(), self.prompt_buffer.back()) {
-					(Some(front), Some(back)) => ((front.re > 0.0) != (back.re > 0.0), back.re > 0.0),
-					(_, _) => (false, false)
-				};
-
-				if found_transition {
-					// We've found the first transition, get rid of everything before the transition
-					self.prompt_buffer.retain(|c| (c.re > 0.0) == back_pos);
-
-					if self.prompt_buffer.len() > 0 {
-						self.state = TrackingState::Tracking;
-					} else {
-						panic!("Somehow ended up with an empty prompt buffer after detecting the first transition");
-					}
-				} 
-
-			},
-			TrackingState::Tracking => if self.prompt_buffer.len() >= 20 { 
-				let this_bit:Complex<f64> = self.prompt_buffer.drain(..20).fold(Complex{ re: 0.0, im: 0.0 }, |a,b| a+b);
-
-				// Normalize the carrier at the end of every bit, which is every 20 ms
-				self.carrier = self.carrier / self.carrier.norm();
-
-				// Check the quality of the lock
-				let total_input_power:f64 = self.input_power_buffer.drain(..20).sum();
-				self.test_stat = this_bit.norm_sqr() / (total_input_power * self.code_len_samples * 20.0);
-
-				// Either return an error or the next bit
-				if self.test_stat < LONG_COH_THRESH_LOSS_OF_LOCK { 	
-					// For a long coherent processing interval, we should be over this threshold under H0 or under this
-					// threshold with H1 with a vanishingly small likelihood, i.e. this should be a very good indicator of 
-					// the lock status without any need for other filtering or anything like that
-					self.state = TrackingState::LostLock;
-					return TrackingResult::Err(DigSigProcErr::LossOfLock);
-				} else { 
-					return TrackingResult::Ok{ prompt_i:this_bit.re, bit_idx: sample.1};
-				}
-			},
-			TrackingState::LostLock => return TrackingResult::Err(DigSigProcErr::LossOfLock),
-		}
+			// Match on the current state.
+			match self.state {
+				TrackingState::WaitingForInitialLockStatus => {
+					if self.prompt_buffer.len() >= 20 {
+						if self.test_stat > SHORT_COH_THRESH_PROMOTE_TO_LONG { 		
+							// If the signal is not present, each coherent interval has a 9.9999988871e-01 chance of staying under this threshold
+							// If the signal is present,     each coherent interval has a 3.7330000000e-01 chance of staying under this threshold
+							// So if the signal is present, it should only take 3 or 4 tries to exceed this threshold
+							let (found_transition, back_pos) = match (self.prompt_buffer.front(), self.prompt_buffer.back()) {
+								(Some(front), Some(back)) => ((front.re > 0.0) != (back.re > 0.0), back.re > 0.0),
+								(_, _) => (false, false)
+							};
 		
+							if found_transition {
+								// We've found the first transition, get rid of everything before the transition
+								self.prompt_buffer.retain(|c| (c.re > 0.0) == back_pos);
+		
+								if self.prompt_buffer.len() > 0 {
+									self.state = TrackingState::Tracking;
+								} else {
+									panic!("Somehow ended up with an empty prompt buffer after detecting the first transition");
+								}
+							} 
+						} else if self.test_stat < SHORT_COH_THRESH_LOSS_OF_LOCK {	
+							// If the signal is not present, each coherent interval has a 9.974e-04 chance of staying under this threshold
+							// If the signal is present,     each coherent interval has a 4.543e-07 chance of staying under this threshold
+							// If the signal is not present, we should on average only waste about 1 [sec] trying to track it
+							self.state = TrackingState::LostLock;
+							return TrackingResult::Err(DigSigProcErr::LossOfLock);
+						}
+					}
+				},
+				TrackingState::Tracking => {
+					if self.prompt_buffer.len() >= 20 { 
+						let this_bit:Complex<f64> = self.prompt_buffer.drain(..20).fold(Complex{ re: 0.0, im: 0.0 }, |a,b| a+b);
+		
+						// Normalize the carrier at the end of every bit, which is every 20 ms
+						self.carrier = self.carrier / self.carrier.norm();
+		
+						// Check the quality of the lock
+						let total_input_power:f64 = self.input_power_buffer.drain(..20).sum();
+						self.test_stat = this_bit.norm_sqr() / (total_input_power * self.code_len_samples * 20.0);
+		
+						// Either return an error or the next bit
+						if self.test_stat < LONG_COH_THRESH_LOSS_OF_LOCK { 	
+							// For a long coherent processing interval, we should be over this threshold under H0 or under this
+							// threshold with H1 with a vanishingly small likelihood, i.e. this should be a very good indicator of 
+							// the lock status without any need for other filtering or anything like that
+							self.state = TrackingState::LostLock;
+							return TrackingResult::Err(DigSigProcErr::LossOfLock);
+						} else { 
+							return TrackingResult::Ok{ prompt_i:this_bit.re, bit_idx: sample.1};
+						}
+					}
+				},
+				TrackingState::LostLock => return TrackingResult::Err(DigSigProcErr::LossOfLock),
+			}
+		}
+
 		TrackingResult::NotReady
 	}
 

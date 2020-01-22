@@ -2,7 +2,6 @@
 extern crate rustfft;
 extern crate serde;
 
-use std::collections::VecDeque;
 use std::f64::consts;
 
 use self::rustfft::num_complex::Complex;
@@ -47,8 +46,9 @@ pub struct Tracking {
 	input_power1: f64,
 
 	// Used during summation over the lond interval
-	prompt_buffer: VecDeque<Complex<f64>>,
-	input_power_buffer: VecDeque<f64>,
+	num_short_intervals: u8,
+	sum_prompt_long: Complex<f64>,
+	input_power_long: f64,
 
 	code_len_samples: f64,
 	pub test_stat:f64,
@@ -104,6 +104,12 @@ impl Tracking {
 		self.sum_early  = Complex{ re: 0.0, im: 0.0};
 		self.sum_prompt = Complex{ re: 0.0, im: 0.0};
 		self.sum_late   = Complex{ re: 0.0, im: 0.0};
+	}
+
+	fn reset_long_interval_sums(&mut self) {
+		self.num_short_intervals = 0;
+		self.sum_prompt_long     = Complex{re: 0.0, im: 0.0};
+		self.input_power_long    = 0.0;
 	}
 
 	// Public interface
@@ -162,8 +168,9 @@ impl Tracking {
 						// If the signal is not present, each coherent interval has a 9.9999988871e-01 chance of staying under this threshold
 						// If the signal is present,     each coherent interval has a 3.7330000000e-01 chance of staying under this threshold
 						// So if the signal is present, it should only take about 10 tries to exceed this threshold
-						self.prompt_buffer.push_back(self.prompt1);
-						self.input_power_buffer.push_back(self.input_power1);
+						self.num_short_intervals = 1;
+						self.sum_prompt_long     = self.prompt1;
+						self.input_power_long    = self.input_power1;
 						self.state = TrackingState::Tracking;
 					} else if test_stat1 < SHORT_COH_THRESH_LOSS_OF_LOCK {	
 						// If the signal is not present, each coherent interval has a 9.974e-04 chance of staying under this threshold
@@ -175,40 +182,37 @@ impl Tracking {
 					}
 				},
 				TrackingState::Tracking => {
-					// Add this prompt value to the buffer
-					self.prompt_buffer.push_back(self.sum_prompt);
-					self.input_power_buffer.push_back(self.input_signal_power);
+					self.num_short_intervals += 1;
+					self.sum_prompt_long     += self.sum_prompt;
+					self.input_power_long    += self.input_signal_power;
 
-					// Limit the size of the buffers to 20
-					while self.prompt_buffer.len()      > 20 { self.prompt_buffer.pop_front();      }
-					while self.input_power_buffer.len() > 20 { self.input_power_buffer.pop_front(); }
-						
-					if self.prompt_buffer.len() >= 20 { 
-						let this_bit:Complex<f64> = self.prompt_buffer.drain(..20).fold(Complex{ re: 0.0, im: 0.0 }, |a,b| a+b);
-		
+					if self.num_short_intervals == 20 { 
+
 						// Normalize the carrier at the end of every bit, which is every 20 ms
 						self.carrier = self.carrier / self.carrier.norm();
 		
 						// Check the quality of the lock
-						let total_input_power:f64 = self.input_power_buffer.drain(..20).sum();
-						self.test_stat = this_bit.norm_sqr() / (total_input_power * self.code_len_samples * 20.0);
+						self.test_stat = self.sum_prompt_long.norm_sqr() / (self.input_power_long * self.code_len_samples * 20.0);
 		
+						let prompt_i:f64 = self.sum_prompt.re;
+						self.reset_short_interval_sums();
+						self.reset_long_interval_sums();
+
 						// Either return an error or the next bit
 						if self.test_stat < LONG_COH_THRESH_LOSS_OF_LOCK { 	
 							// For a long coherent processing interval, we should be over this threshold under H0 or under this
 							// threshold with H1 with a vanishingly small likelihood, i.e. this should be a very good indicator of 
 							// the lock status without any need for other filtering or anything like that
 							self.state = TrackingState::LostLock;
-							self.reset_short_interval_sums();
 							return TrackingResult::Err(DigSigProcErr::LossOfLock);
 						} else { 
-							self.reset_short_interval_sums();
-							return TrackingResult::Ok{ prompt_i:this_bit.re, bit_idx: sample.1};
+							return TrackingResult::Ok{ prompt_i, bit_idx: sample.1};
 						}
-					}
+					} else if self.num_short_intervals > 20 { panic!("self.num_short_intervals = {}", self.num_short_intervals); }
 				},
 				TrackingState::LostLock => {
 					self.reset_short_interval_sums();
+					self.reset_long_interval_sums();
 					return TrackingResult::Err(DigSigProcErr::LossOfLock)
 				},
 			}
@@ -232,15 +236,13 @@ impl Tracking {
 		self.carrier_filter.initialize();
 		self.code_filter.initialize();
 
-		self.prompt_buffer.clear();
-		self.sum_early  = Complex{ re: 0.0, im: 0.0};
-		self.sum_prompt = Complex{ re: 0.0, im: 0.0};
-		self.sum_late   = Complex{ re: 0.0, im: 0.0};
-
 		self.prompt0 = Complex{re: 0.0, im: 0.0};
 		self.prompt1 = Complex{re: 0.0, im: 0.0};
 		self.input_power0 = 1.0;
 		self.input_power1 = 1.0;
+
+		self.reset_short_interval_sums();
+		self.reset_long_interval_sums();
 
 		self.state = TrackingState::WaitingForInitialLockStatus;
 		
@@ -280,9 +282,9 @@ pub fn new_default_tracker(prn:usize, acq_freq_hz:f64, fs:f64, bw_pll_hz:f64, bw
 		sum_early: Complex{re: 0.0, im: 0.0}, sum_prompt: Complex{re: 0.0, im: 0.0}, sum_late: Complex{re: 0.0, im: 0.0}, 
 		prompt0: Complex{re: 0.0, im: 0.0},
 		prompt1: Complex{re: 0.0, im: 0.0},
-		input_power0: 1.0,
-		input_power1: 1.0,
-		input_signal_power: 0.0, prompt_buffer: VecDeque::new(), input_power_buffer: VecDeque::new(),
+		input_power0: 1.0, input_power1: 1.0,
+		num_short_intervals: 0, sum_prompt_long: Complex{ re: 0.0 , im: 0.0 }, input_power_long: 1.0, 
+		input_signal_power: 0.0,
 		state: TrackingState::WaitingForInitialLockStatus,
 		fs, local_code, test_stat: 0.0, 
 	}		

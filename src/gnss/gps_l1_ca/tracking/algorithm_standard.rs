@@ -90,6 +90,13 @@ impl Tracking {
 		}
 	}
 
+	fn reset_short_interval_sums(&mut self) {
+		self.input_signal_power = 0.0;
+		self.sum_early  = Complex{ re: 0.0, im: 0.0};
+		self.sum_prompt = Complex{ re: 0.0, im: 0.0};
+		self.sum_late   = Complex{ re: 0.0, im: 0.0};
+	}
+
 	// Public interface
 	/// Takes a sample in the form of a tuple of the complex sample itself and the sample number.  Returns a TrackingResult.
 	pub fn apply(&mut self, sample:(Complex<f64>, usize)) -> TrackingResult {
@@ -130,27 +137,22 @@ impl Tracking {
 			};
 			self.code_dphase += self.code_filter.apply(code_error / self.fs);
 
-			// Add this prompt value to the buffer
-			self.prompt_buffer.push_back(self.sum_prompt);
-			self.input_power_buffer.push_back(self.input_signal_power);
-
-			// Limit the size of the buffers to 20
-			while self.prompt_buffer.len()      > 20 { self.prompt_buffer.pop_front();      }
-			while self.input_power_buffer.len() > 20 { self.input_power_buffer.pop_front(); }
-				
-			// Record the test statistic for this coherent processing interval
-			self.test_stat = self.sum_prompt.norm_sqr() / (self.input_signal_power * self.code_len_samples);
-			self.input_signal_power = 0.0;
-
-			// Reset the sum accumulators for the next prompt
-			self.sum_early  = Complex{ re: 0.0, im: 0.0};
-			self.sum_prompt = Complex{ re: 0.0, im: 0.0};
-			self.sum_late   = Complex{ re: 0.0, im: 0.0};
-
 			// Match on the current state.
 			match self.state {
 				TrackingState::WaitingForInitialLockStatus => {
+					// Add this prompt value to the buffer
+					self.prompt_buffer.push_back(self.sum_prompt);
+					self.input_power_buffer.push_back(self.input_signal_power);
+
+					// Limit the size of the buffers to 20
+					while self.prompt_buffer.len()      > 20 { self.prompt_buffer.pop_front();      }
+					while self.input_power_buffer.len() > 20 { self.input_power_buffer.pop_front(); }
+						
 					if self.prompt_buffer.len() >= 20 {
+
+						// Record the test statistic for this short coherent processing interval
+						self.test_stat = self.sum_prompt.norm_sqr() / (self.input_signal_power * self.code_len_samples);
+
 						if self.test_stat > SHORT_COH_THRESH_PROMOTE_TO_LONG { 		
 							// If the signal is not present, each coherent interval has a 9.9999988871e-01 chance of staying under this threshold
 							// If the signal is present,     each coherent interval has a 3.7330000000e-01 chance of staying under this threshold
@@ -175,11 +177,20 @@ impl Tracking {
 							// If the signal is present,     each coherent interval has a 4.543e-07 chance of staying under this threshold
 							// If the signal is not present, we should on average only waste about 1 [sec] trying to track it
 							self.state = TrackingState::LostLock;
+							self.reset_short_interval_sums();
 							return TrackingResult::Err(DigSigProcErr::LossOfLock);
 						}
 					}
 				},
 				TrackingState::Tracking => {
+					// Add this prompt value to the buffer
+					self.prompt_buffer.push_back(self.sum_prompt);
+					self.input_power_buffer.push_back(self.input_signal_power);
+
+					// Limit the size of the buffers to 20
+					while self.prompt_buffer.len()      > 20 { self.prompt_buffer.pop_front();      }
+					while self.input_power_buffer.len() > 20 { self.input_power_buffer.pop_front(); }
+						
 					if self.prompt_buffer.len() >= 20 { 
 						let this_bit:Complex<f64> = self.prompt_buffer.drain(..20).fold(Complex{ re: 0.0, im: 0.0 }, |a,b| a+b);
 		
@@ -196,14 +207,21 @@ impl Tracking {
 							// threshold with H1 with a vanishingly small likelihood, i.e. this should be a very good indicator of 
 							// the lock status without any need for other filtering or anything like that
 							self.state = TrackingState::LostLock;
+							self.reset_short_interval_sums();
 							return TrackingResult::Err(DigSigProcErr::LossOfLock);
 						} else { 
+							self.reset_short_interval_sums();
 							return TrackingResult::Ok{ prompt_i:this_bit.re, bit_idx: sample.1};
 						}
 					}
 				},
-				TrackingState::LostLock => return TrackingResult::Err(DigSigProcErr::LossOfLock),
+				TrackingState::LostLock => {
+					self.reset_short_interval_sums();
+					return TrackingResult::Err(DigSigProcErr::LossOfLock)
+				},
 			}
+
+			self.reset_short_interval_sums();
 		}
 
 		TrackingResult::NotReady

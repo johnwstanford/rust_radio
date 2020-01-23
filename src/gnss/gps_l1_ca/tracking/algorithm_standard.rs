@@ -22,8 +22,16 @@ pub const SHORT_COH_THRESH_PROMOTE_TO_LONG:f64 = 0.008;
 pub const SHORT_COH_THRESH_LOSS_OF_LOCK:f64    = 5.0e-7;
 pub const LONG_COH_THRESH_LOSS_OF_LOCK:f64     = 0.001;
 
+const ZERO:Complex<f64> = Complex{ re: 0.0, im: 0.0 };
+
 // Lock detection
 pub struct Tracking {
+	code_len_samples: f64,
+	pub state: TrackingState,
+	pub fs:f64,
+	pub local_code:Vec<Complex<f64>>,
+
+	// Carrier and code
 	carrier: Complex<f64>,
 	carrier_inc: Complex<f64>,
 	carrier_dphase_rad: f64,
@@ -40,22 +48,15 @@ pub struct Tracking {
 	input_signal_power: f64,
 
 	// Used to determine whether to transition from short to long integration
-	prompt0: Complex<f64>,
-	prompt1: Complex<f64>,
-	input_power0: f64,
-	input_power1: f64,
+	prev_prompt: Complex<f64>,
+	prev_input_power: f64,
+	prev_test_stat:f64,
 
-	// Used during summation over the lond interval
+	// Used during summation over the long interval
 	num_short_intervals: u8,
 	sum_prompt_long: Complex<f64>,
 	input_power_long: f64,
-
-	code_len_samples: f64,
 	pub test_stat:f64,
-
-	pub state: TrackingState,
-	pub fs:f64,
-	pub local_code:Vec<Complex<f64>>,
 }
 
 #[derive(Debug)]
@@ -101,14 +102,14 @@ impl Tracking {
 
 	fn reset_short_interval_sums(&mut self) {
 		self.input_signal_power = 0.0;
-		self.sum_early  = Complex{ re: 0.0, im: 0.0};
-		self.sum_prompt = Complex{ re: 0.0, im: 0.0};
-		self.sum_late   = Complex{ re: 0.0, im: 0.0};
+		self.sum_early  = ZERO;
+		self.sum_prompt = ZERO;
+		self.sum_late   = ZERO;
 	}
 
 	fn reset_long_interval_sums(&mut self) {
 		self.num_short_intervals = 0;
-		self.sum_prompt_long     = Complex{re: 0.0, im: 0.0};
+		self.sum_prompt_long     = ZERO;
 		self.input_power_long    = 0.0;
 	}
 
@@ -155,24 +156,18 @@ impl Tracking {
 			// Match on the current state.
 			match self.state {
 				TrackingState::WaitingForInitialLockStatus => {
-					self.prompt0      = self.prompt1;
-					self.prompt1      = self.sum_prompt;
-					self.input_power0 = self.input_power1;
-					self.input_power1 = self.input_signal_power;
 
-					let test_stat0 = self.prompt0.norm_sqr() / (self.input_power0 * self.code_len_samples);
-					let test_stat1 = self.prompt1.norm_sqr() / (self.input_power1 * self.code_len_samples);
-					self.test_stat = test_stat1;
+					self.test_stat = self.sum_prompt.norm_sqr()  / (self.input_signal_power * self.code_len_samples);
 
-					if test_stat0 > SHORT_COH_THRESH_PROMOTE_TO_LONG && test_stat1 > SHORT_COH_THRESH_PROMOTE_TO_LONG && (self.prompt0.re > 0.0) != (self.prompt1.re > 0.0) { 		
+					if self.prev_test_stat > SHORT_COH_THRESH_PROMOTE_TO_LONG && self.test_stat > SHORT_COH_THRESH_PROMOTE_TO_LONG && (self.prev_prompt.re > 0.0) != (self.sum_prompt.re > 0.0) { 		
 						// If the signal is not present, each coherent interval has a 9.9999988871e-01 chance of staying under this threshold
 						// If the signal is present,     each coherent interval has a 3.7330000000e-01 chance of staying under this threshold
 						// So if the signal is present, it should only take about 10 tries to exceed this threshold
 						self.num_short_intervals = 1;
-						self.sum_prompt_long     = self.prompt1;
-						self.input_power_long    = self.input_power1;
+						self.sum_prompt_long     = self.sum_prompt;
+						self.input_power_long    = self.input_signal_power;
 						self.state = TrackingState::Tracking;
-					} else if test_stat1 < SHORT_COH_THRESH_LOSS_OF_LOCK {	
+					} else if self.test_stat < SHORT_COH_THRESH_LOSS_OF_LOCK {	
 						// If the signal is not present, each coherent interval has a 9.974e-04 chance of staying under this threshold
 						// If the signal is present,     each coherent interval has a 4.543e-07 chance of staying under this threshold
 						// If the signal is not present, we should on average only waste about 1 [sec] trying to track it
@@ -180,6 +175,10 @@ impl Tracking {
 						self.reset_short_interval_sums();
 						return TrackingResult::Err(DigSigProcErr::LossOfLock);
 					}
+
+					self.prev_test_stat   = self.test_stat;
+					self.prev_prompt      = self.sum_prompt;
+					self.prev_input_power = self.input_signal_power;
 				},
 				TrackingState::Tracking => {
 					self.num_short_intervals += 1;
@@ -236,10 +235,9 @@ impl Tracking {
 		self.carrier_filter.initialize();
 		self.code_filter.initialize();
 
-		self.prompt0 = Complex{re: 0.0, im: 0.0};
-		self.prompt1 = Complex{re: 0.0, im: 0.0};
-		self.input_power0 = 1.0;
-		self.input_power1 = 1.0;
+		self.prev_prompt = ZERO;
+		self.prev_input_power = 1.0;
+		self.prev_test_stat = 0.0;
 
 		self.reset_short_interval_sums();
 		self.reset_long_interval_sums();
@@ -276,16 +274,21 @@ pub fn new_default_tracker(prn:usize, acq_freq_hz:f64, fs:f64, bw_pll_hz:f64, bw
 	let carrier_filter = filters::new_second_order_fir((pdi + 2.0*tau2_car) / (2.0*tau1_car), (pdi - 2.0*tau2_car) / (2.0*tau1_car));
 	let code_filter    = filters::new_second_order_fir((pdi + 2.0*tau2_cod) / (2.0*tau1_cod), (pdi - 2.0*tau2_cod) / (2.0*tau1_cod));
 
-	Tracking { carrier, carrier_inc, carrier_dphase_rad, 
-		code_phase, code_dphase,
-		carrier_filter, code_filter, code_len_samples,
-		sum_early: Complex{re: 0.0, im: 0.0}, sum_prompt: Complex{re: 0.0, im: 0.0}, sum_late: Complex{re: 0.0, im: 0.0}, 
-		prompt0: Complex{re: 0.0, im: 0.0},
-		prompt1: Complex{re: 0.0, im: 0.0},
-		input_power0: 1.0, input_power1: 1.0,
-		num_short_intervals: 0, sum_prompt_long: Complex{ re: 0.0 , im: 0.0 }, input_power_long: 1.0, 
+	Tracking { 
+		code_len_samples, state: TrackingState::WaitingForInitialLockStatus, fs, local_code, 
+
+		// Carrier and code
+		carrier, carrier_inc, carrier_dphase_rad, code_phase, code_dphase, carrier_filter, code_filter, 
+
+		// Used during summation over the short interval
+		sum_early: ZERO, sum_prompt: ZERO, sum_late: ZERO, 
 		input_signal_power: 0.0,
-		state: TrackingState::WaitingForInitialLockStatus,
-		fs, local_code, test_stat: 0.0, 
+		
+		// Used to determine whether to transition from short to long integration
+		prev_prompt: ZERO, prev_input_power: 1.0, prev_test_stat: 0.0,
+	
+		// Used during summation over the long interval
+		num_short_intervals: 0, sum_prompt_long: ZERO, input_power_long: 1.0, test_stat: 0.0, 
 	}		
+
 }

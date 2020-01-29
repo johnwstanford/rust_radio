@@ -59,7 +59,7 @@ fn main() {
 
 	// 1 [Hz] resolution on acquisition; we're only doing this once and we want to give the tracking block the best start possible
 	let mut acq = acquisition::make_acquisition(symbol, fs, prn, 9, 1000, 0.0, 0);	
-	let mut trk = algorithm_dev::new_default_tracker(prn, 0.0, fs);
+	let mut trk = algorithm_dev::new_default_tracker(prn, 0.0, fs, 40.0, 4.0);
 	let mut code_phase:usize = 0;
 	let mut all_results:Vec<Result> = vec![];
 
@@ -68,7 +68,7 @@ fn main() {
 		match acq.block_for_result(prn) {
 			Ok(Some(result)) => {
 				eprintln!("PRN {:02}: {:9.2} [Hz], {:6} [chips], {:.8}", prn, result.doppler_hz, result.code_phase, result.test_statistic());
-				trk = algorithm_dev::new_default_tracker(prn, result.doppler_hz, fs);
+				trk = algorithm_dev::new_default_tracker(prn, result.doppler_hz, fs, 40.0, 4.0);
 				code_phase = result.code_phase;
 				break 'outer_acq;
 			},
@@ -83,9 +83,12 @@ fn main() {
 			algorithm_dev::TrackingResult::Ok{ prompt_i, bit_idx } => {
 				let debug = trk.debug();
 				match trk.state {
-					algorithm_dev::TrackingState::SeekingBitTransition   => eprintln!("Dev: WaitingForFirstTransition {}", format!("{:.8} [Hz], {:14.3}", debug.carrier_hz, debug.test_stat).yellow()),
-					algorithm_dev::TrackingState::Tracking               => eprintln!("Dev: Tracking {}", format!("{:9.2} [Hz], {:.8}", debug.carrier_hz, debug.test_stat).green()),
-					algorithm_dev::TrackingState::LostLock               => break 'outer_trk,
+					algorithm_dev::TrackingState::WaitingForInitialLockStatus{ prev_prompt:_, prev_test_stat:_ } => 
+						eprintln!("Dev: WaitingForFirstTransition {}", format!("{:.8} [Hz], {:14.3}", debug.carrier_hz, debug.test_stat).yellow()),
+					algorithm_dev::TrackingState::Tracking{ num_short_intervals:_, sum_prompt_long:_, input_power_long:_, test_stat:_ } => 
+						eprintln!("Dev: Tracking {}", format!("{:9.2} [Hz], {:.8}", debug.carrier_hz, debug.test_stat).green()),
+					algorithm_dev::TrackingState::LostLock => 
+						break 'outer_trk,
 				}
 				all_results.push(Result{ prompt_i, bit_idx, debug });
 				if let Some(max_records) = opt_max_records {

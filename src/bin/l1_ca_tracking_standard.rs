@@ -83,9 +83,12 @@ fn main() {
 			algorithm_standard::TrackingResult::Ok{ prompt_i, bit_idx } => {
 				let debug = trk.debug();
 				match trk.state {
-					algorithm_standard::TrackingState::WaitingForInitialLockStatus => eprintln!("Std: WaitingForInitialLockStatus {}", format!("{:9.2} [Hz] {:10.6}", debug.carrier_hz, trk.test_stat).yellow()),
-					algorithm_standard::TrackingState::Tracking                    => eprintln!("Std: Tracking {}", format!("{:9.2} [Hz] {:10.6}", debug.carrier_hz, trk.test_stat).green()),
-					algorithm_standard::TrackingState::LostLock                    => eprintln!("Std: Lost Lock {}", format!("{:9.2} [Hz] {:10.6}", debug.carrier_hz, trk.test_stat).red()),
+					algorithm_standard::TrackingState::WaitingForInitialLockStatus{ prev_prompt:_, prev_test_stat:_ } => 
+						eprintln!("Std: WaitingForInitialLockStatus {}", format!("{:9.2} [Hz] {:10.6}", debug.carrier_hz, trk.test_stat()).yellow()),
+					algorithm_standard::TrackingState::Tracking{ num_short_intervals:_, sum_prompt_long:_, input_power_long:_, test_stat:_ } => 
+						eprintln!("Std: Tracking {}", format!("{:9.2} [Hz] {:10.6}", debug.carrier_hz, trk.test_stat()).green()),
+					algorithm_standard::TrackingState::LostLock => 
+						eprintln!("Std: Lost Lock {}", format!("{:9.2} [Hz] {:10.6}", debug.carrier_hz, trk.test_stat()).red()),
 				}
 				all_results.push(Result{ prompt_i, bit_idx, debug });
 				if let Some(max_records) = opt_max_records {

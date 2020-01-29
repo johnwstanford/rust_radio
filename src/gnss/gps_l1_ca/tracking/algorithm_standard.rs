@@ -28,7 +28,6 @@ const ZERO:Complex<f64> = Complex{ re: 0.0, im: 0.0 };
 pub struct Tracking {
 	code_len_samples: f64,
 	pub state: TrackingState,
-	opt_next_state: Option<TrackingState>,
 	pub fs:f64,
 	pub local_code:Vec<Complex<f64>>,
 
@@ -117,8 +116,8 @@ impl Tracking {
 		
 		self.code_phase += self.code_dphase;
 
-		// If there's a new prompt value available, do correlation on it and add it to the prompt buffer
 		if self.code_phase >= 1023.0 {
+			// End of a 1-ms short coherent cycle
 
 			// Update carrier tracking
 			let carrier_error = if self.sum_prompt.re == 0.0 { 0.0 } else { (self.sum_prompt.im / self.sum_prompt.re).atan() / self.fs };
@@ -134,10 +133,6 @@ impl Tracking {
 			};
 			self.code_dphase += self.code_filter.apply(code_error / self.fs);
 
-			// Match on the current state.
-			if let Some(next_state) = self.opt_next_state { self.state = next_state; }
-			self.opt_next_state = None;
-
 			// Save the values we'll need for long integration and reset the short integration accumulators for the next cycle
 			let this_input_signal_power:f64  = self.input_signal_power;
 			let this_sum_prompt:Complex<f64> = self.sum_prompt;
@@ -146,7 +141,7 @@ impl Tracking {
 			self.sum_prompt = ZERO;
 			self.sum_late   = ZERO;
 
-			match self.state {
+			let (result, opt_next_state) = match self.state {
 				TrackingState::WaitingForInitialLockStatus{ ref mut prev_prompt, ref mut prev_test_stat } => {
 
 					let test_stat = this_sum_prompt.norm_sqr()  / (this_input_signal_power * self.code_len_samples);
@@ -155,18 +150,19 @@ impl Tracking {
 						// If the signal is not present, each coherent interval has a 9.9999988871e-01 chance of staying under this threshold
 						// If the signal is present,     each coherent interval has a 3.7330000000e-01 chance of staying under this threshold
 						// So if the signal is present, it should only take about 10 tries to exceed this threshold
-						self.opt_next_state = Some(TrackingState::Tracking{ num_short_intervals: 1, sum_prompt_long: this_sum_prompt, 
-							input_power_long: this_input_signal_power, test_stat });
+						let next_state = TrackingState::Tracking{ num_short_intervals: 1, sum_prompt_long: this_sum_prompt, input_power_long: this_input_signal_power, test_stat };
+						(TrackingResult::NotReady, Some(next_state))
 					} else if test_stat < SHORT_COH_THRESH_LOSS_OF_LOCK {	
 						// If the signal is not present, each coherent interval has a 9.974e-04 chance of staying under this threshold
 						// If the signal is present,     each coherent interval has a 4.543e-07 chance of staying under this threshold
 						// If the signal is not present, we should on average only waste about 1 [sec] trying to track it
-						self.opt_next_state = Some(TrackingState::LostLock);
-						return TrackingResult::Err(DigSigProcErr::LossOfLock);
+						(TrackingResult::Err(DigSigProcErr::LossOfLock), Some(TrackingState::LostLock))
+					} else {
+						*prev_test_stat   = test_stat;
+						*prev_prompt      = this_sum_prompt;
+						(TrackingResult::NotReady, None)						
 					}
 
-					*prev_test_stat   = test_stat;
-					*prev_prompt      = this_sum_prompt;
 				},
 				TrackingState::Tracking{ ref mut num_short_intervals, ref mut sum_prompt_long, ref mut input_power_long, ref mut test_stat } => {
 					*num_short_intervals += 1;
@@ -192,19 +188,22 @@ impl Tracking {
 							// For a long coherent processing interval, we should be over this threshold under H0 or under this
 							// threshold with H1 with a vanishingly small likelihood, i.e. this should be a very good indicator of 
 							// the lock status without any need for other filtering or anything like that
-							self.opt_next_state = Some(TrackingState::LostLock);
-							return TrackingResult::Err(DigSigProcErr::LossOfLock);
-						} else { 
-							return TrackingResult::Ok{ prompt_i, bit_idx: sample.1};
-						}
-					} else if *num_short_intervals > 20 { panic!("self.num_short_intervals = {}", *num_short_intervals); }
+							(TrackingResult::Err(DigSigProcErr::LossOfLock), Some(TrackingState::LostLock))
+						} else { (TrackingResult::Ok{ prompt_i, bit_idx: sample.1}, None) }
+					} 
+					else if *num_short_intervals > 20 { panic!("self.num_short_intervals = {}", *num_short_intervals); }
+					else                              { (TrackingResult::NotReady, None)                               }
 				},
-				TrackingState::LostLock => return TrackingResult::Err(DigSigProcErr::LossOfLock),
-			}
+				TrackingState::LostLock => (TrackingResult::Err(DigSigProcErr::LossOfLock), None),
+			};
 
-		}
+			if let Some(next_state) = opt_next_state { self.state = next_state; }
+			
+			result
 
-		TrackingResult::NotReady
+		} else { TrackingResult::NotReady }
+
+		
 	}
 
 	pub fn initialize(&mut self, acq_freq_hz:f64) {
@@ -260,7 +259,7 @@ pub fn new_default_tracker(prn:usize, acq_freq_hz:f64, fs:f64, bw_pll_hz:f64, bw
 	let state = TrackingState::WaitingForInitialLockStatus{ prev_prompt: ZERO, prev_test_stat: 0.0 };
 
 	Tracking { 
-		code_len_samples, state, opt_next_state: None, fs, local_code, 
+		code_len_samples, state, fs, local_code, 
 
 		// Carrier and code
 		carrier, carrier_inc, carrier_dphase_rad, code_phase, code_dphase, carrier_filter, code_filter, 

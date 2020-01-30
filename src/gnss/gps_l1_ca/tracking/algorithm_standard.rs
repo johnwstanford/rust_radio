@@ -119,8 +119,8 @@ impl Tracking {
 		if self.code_phase >= 1023.0 {
 			// End of a 1-ms short coherent cycle
 
-			// Update carrier tracking
-			let carrier_error = if self.sum_prompt.re == 0.0 { 0.0 } else { (self.sum_prompt.im / self.sum_prompt.re).atan() / self.fs };
+			// Update carrier tracking; carrier_error has units [radian-sec / sample]
+			let carrier_error = if self.sum_prompt.re == 0.0 { 0.0 } else { (self.sum_prompt.im / self.sum_prompt.re).atan() / self.fs };	
 			self.carrier_dphase_rad += self.carrier_filter.apply(carrier_error);
 			self.carrier_inc = Complex{ re: self.carrier_dphase_rad.cos(), im: -self.carrier_dphase_rad.sin() };
 	
@@ -244,14 +244,14 @@ pub fn new_default_tracker(prn:usize, acq_freq_hz:f64, fs:f64, bw_pll_hz:f64, bw
 	let code_phase      = 0.0;
 	let code_dphase     = (radial_velocity_factor * 1.023e6) / fs;
 
-	let zeta = 0.7;
-	let pdi = 0.001;
-	let wn_cod = (bw_dll_hz * 8.0 * zeta) / (4.0 * zeta * zeta + 1.0);
-	let wn_car = (bw_pll_hz * 8.0 * zeta) / (4.0 * zeta * zeta + 1.0);
-	let tau1_cod = 1.0  / (wn_cod * wn_cod);
-	let tau1_car = 0.25 / (wn_car * wn_car);
-	let tau2_cod = (2.0 * zeta) / wn_cod;
-	let tau2_car = (2.0 * zeta) / wn_car;
+	let zeta = 0.7;															// []
+	let pdi = 0.001;														// [sec]
+	let wn_cod = (bw_dll_hz * 8.0 * zeta) / (4.0 * zeta * zeta + 1.0);		// [1/sec]
+	let wn_car = (bw_pll_hz * 8.0 * zeta) / (4.0 * zeta * zeta + 1.0);		// [1/sec]
+	let tau1_cod = 1.0  / (wn_cod * wn_cod);								// [sec^2]
+	let tau1_car = 0.25 / (wn_car * wn_car);								// [sec^2]
+	let tau2_cod = (2.0 * zeta) / wn_cod;									// [sec]
+	let tau2_car = (2.0 * zeta) / wn_car;									// [sec]
 
 	let carrier_filter = filters::new_second_order_fir((pdi + 2.0*tau2_car) / (2.0*tau1_car), (pdi - 2.0*tau2_car) / (2.0*tau1_car));
 	let code_filter    = filters::new_second_order_fir((pdi + 2.0*tau2_cod) / (2.0*tau1_cod), (pdi - 2.0*tau2_cod) / (2.0*tau1_cod));

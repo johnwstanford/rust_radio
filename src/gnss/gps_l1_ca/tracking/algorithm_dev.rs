@@ -119,6 +119,22 @@ impl Tracking {
 		if self.code_phase >= 1023.0 {
 			// End of a 1-ms short coherent cycle
 
+			/*	
+				// Update carrier tracking
+				let angle_err:f64 = (prompt.im / prompt.re).atan();
+				self.d_carrier_radians_per_sample += angle_err / (self.code_len_samples * num_symbols);
+				self.carrier_step = Complex{ re: self.d_carrier_radians_per_sample.cos(), im: self.d_carrier_radians_per_sample.sin() };
+				self.carrier *= Complex{ re: angle_err.cos(), im: angle_err.sin()};
+
+				// Update code tracking
+			    let carrier_hz = (self.d_carrier_radians_per_sample * self.fs) / (2.0 * consts::PI);
+				let radial_velocity_factor = (1.57542e9 + carrier_hz) / 1.57542e9;
+				self.code_dphase = (radial_velocity_factor * 1.023e6) / self.fs;
+
+				let code_phase_correction = (early.norm() - late.norm()) / (4.0*early.norm() - 8.0*prompt.norm() + 4.0*late.norm());
+				self.code_phase += code_phase_correction;
+			*/
+			
 			// Update carrier tracking
 			let carrier_error = if self.sum_prompt.re == 0.0 { 0.0 } else { (self.sum_prompt.im / self.sum_prompt.re).atan() / self.fs };
 			self.carrier_dphase_rad += self.carrier_filter.apply(carrier_error);
@@ -171,10 +187,10 @@ impl Tracking {
 
 					if *num_short_intervals == 20 { 
 
-						// Normalize the carrier at the end of every bit, which is every 20 ms
-						self.carrier = self.carrier / self.carrier.norm();
+						// Normalize the carrier at the end of coherent processing interval
+						self.carrier = self.carrier.unscale(self.carrier.norm());
 		
-						// Check the quality of the lock
+						// Envelope detection
 						*test_stat = sum_prompt_long.norm_sqr() / (*input_power_long * self.code_len_samples * 20.0);
 		
 						// Save the value we need for the result, then reset the long accumulators
@@ -270,27 +286,3 @@ pub fn new_default_tracker(prn:usize, acq_freq_hz:f64, fs:f64, bw_pll_hz:f64, bw
 
 }
 
-/*fn coherent_process(&mut self, early:Complex<f64>, prompt:Complex<f64>, late:Complex<f64>, num_symbols:f64) -> f64 {
-	// Update carrier tracking
-	let angle_err:f64 = (prompt.im / prompt.re).atan();
-	self.d_carrier_radians_per_sample += angle_err / (self.code_len_samples * num_symbols);
-	self.carrier_step = Complex{ re: self.d_carrier_radians_per_sample.cos(), im: self.d_carrier_radians_per_sample.sin() };
-	self.carrier *= Complex{ re: angle_err.cos(), im: angle_err.sin()};
-
-	// Update code tracking
-    let carrier_hz = (self.d_carrier_radians_per_sample * self.fs) / (2.0 * consts::PI);
-	let radial_velocity_factor = (1.57542e9 + carrier_hz) / 1.57542e9;
-	self.code_dphase = (radial_velocity_factor * 1.023e6) / self.fs;
-
-	let code_phase_correction = (early.norm() - late.norm()) / (4.0*early.norm() - 8.0*prompt.norm() + 4.0*late.norm());
-	self.code_phase += code_phase_correction;
-
-	// Envelope detection
-	self.test_stat = prompt.norm_sqr() / (self.input_signal_power * self.code_len_samples * num_symbols);
-	self.input_signal_power = 0.0;
-
-	// Normalize the carrier at the end of coherent processing interval
-	self.carrier = self.carrier.unscale(self.carrier.norm());
-
-	angle_err
-}*/

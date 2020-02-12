@@ -120,7 +120,7 @@ impl Tracking {
 			// End of a 1-ms short coherent cycle
 
 			// Update carrier tracking; carrier_error has units [radian-sec / sample]
-			let carrier_error = if self.sum_prompt.re == 0.0 { 0.0 } else { (self.sum_prompt.im / self.sum_prompt.re).atan() / self.fs };	
+			let carrier_error = if self.sum_prompt.re == 0.0 { 0.0 } else { (self.sum_prompt.im / self.sum_prompt.re).atan() };	
 			self.carrier_dphase_rad += self.carrier_filter.apply(carrier_error);
 			self.carrier_inc = Complex{ re: self.carrier_dphase_rad.cos(), im: -self.carrier_dphase_rad.sin() };
 	
@@ -131,7 +131,7 @@ impl Tracking {
 				let l:f64 = self.sum_late.norm();
 				if l+e == 0.0 { 0.0 } else { 0.5 * (l-e) / (l+e) }
 			};
-			self.code_dphase += self.code_filter.apply(code_error / self.fs);
+			self.code_dphase += self.code_filter.apply(code_error);
 
 			// Save the values we'll need for long integration and reset the short integration accumulators for the next cycle
 			let this_input_signal_power:f64  = self.input_signal_power;
@@ -253,8 +253,9 @@ pub fn new_default_tracker(prn:usize, acq_freq_hz:f64, fs:f64, bw_pll_hz:f64, bw
 	let tau2_cod = (2.0 * zeta) / wn_cod;									// [sec]
 	let tau2_car = (2.0 * zeta) / wn_car;									// [sec]
 
-	let carrier_filter = filters::new_second_order_fir((pdi + 2.0*tau2_car) / (2.0*tau1_car), (pdi - 2.0*tau2_car) / (2.0*tau1_car));
-	let code_filter    = filters::new_second_order_fir((pdi + 2.0*tau2_cod) / (2.0*tau1_cod), (pdi - 2.0*tau2_cod) / (2.0*tau1_cod));
+	// FIR coefficients for both filters have units of [1 / samples]
+	let carrier_filter = filters::new_second_order_fir((pdi + 2.0*tau2_car) / (2.0*tau1_car*fs), (pdi - 2.0*tau2_car) / (2.0*tau1_car*fs));
+	let code_filter    = filters::new_second_order_fir((pdi + 2.0*tau2_cod) / (2.0*tau1_cod*fs), (pdi - 2.0*tau2_cod) / (2.0*tau1_cod*fs));
 
 	let state = TrackingState::WaitingForInitialLockStatus{ prev_prompt: ZERO, prev_test_stat: 0.0 };
 

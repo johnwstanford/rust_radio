@@ -119,7 +119,7 @@ impl Tracking {
 		if self.code_phase >= 1023.0 {
 			// End of a 1-ms short coherent cycle
 
-			// Update carrier tracking; carrier_error has units [radian-sec / sample]
+			// Update carrier tracking; carrier_error has units [radians]
 			let carrier_error = if self.sum_prompt.re == 0.0 { 0.0 } else { (self.sum_prompt.im / self.sum_prompt.re).atan() };	
 			self.carrier_dphase_rad += self.carrier_filter.apply(carrier_error);
 			self.carrier_inc = Complex{ re: self.carrier_dphase_rad.cos(), im: -self.carrier_dphase_rad.sin() };

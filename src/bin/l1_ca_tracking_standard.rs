@@ -65,7 +65,7 @@ fn main() {
 
 	'outer_acq: for s in io::file_source_i16_complex(&fname).map(|(x, idx)| (Complex{ re: x.0 as f64, im: x.1 as f64 }, idx)) {
 		acq.provide_sample(s).unwrap();
-		match acq.block_for_result(prn) {
+		match acq.block_for_result() {
 			Ok(Some(result)) => {
 				eprintln!("PRN {:02}: {:9.2} [Hz], {:6} [chips], {:.8}", prn, result.doppler_hz, result.code_phase, result.test_statistic());
 				trk = algorithm_standard::new_default_tracker(prn, result.doppler_hz, fs, 40.0, 4.0);

@@ -27,7 +27,7 @@ impl AcquisitionResult {
 
 pub trait Acquisition {
 	fn provide_sample(&mut self, sample:(Complex<f64>, usize)) -> Result<(), &str>;
-	fn block_for_result(&mut self, prn:usize) -> Result<Option<AcquisitionResult>, &str>;
+	fn block_for_result(&mut self) -> Result<Option<AcquisitionResult>, &str>;
 }
 
 pub fn make_acquisition(symbol:Vec<i8>, fs:f64, prn:usize, n_coarse:usize, n_fine:usize, test_statistic_threshold:f64, n_skip:usize) -> fast_pcps::Acquisition {

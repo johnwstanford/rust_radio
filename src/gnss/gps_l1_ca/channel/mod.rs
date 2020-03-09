@@ -49,7 +49,7 @@ impl<A: acquisition::Acquisition> Channel<A> {
 		match self.state() {
 			track_and_tlm::ChannelState::AwaitingAcquisition => {
 				self.acq.provide_sample(s).unwrap();
-				if let Ok(Some(r)) = self.acq.block_for_result(self.prn) {
+				if let Ok(Some(r)) = self.acq.block_for_result() {
 					self.trk_tlm.acquire(r.test_statistic(), r.doppler_hz as f64, r.code_phase);
 					ChannelResult::Acquisition{ doppler_hz: r.doppler_hz, doppler_step_hz: r.doppler_step_hz, test_stat: r.test_statistic() }
 				} else {
@@ -82,6 +82,6 @@ pub fn new_default_channel<A: acquisition::Acquisition>(prn:usize, fs:f64) -> De
 
 pub fn new_channel(prn:usize, fs:f64, test_stat:f64) -> DefaultChannel {
 	let symbol:Vec<i8> = gps_l1_ca::signal_modulation::prn_int_sampled(prn, fs);
-	let acq = acquisition::make_acquisition(symbol, fs, prn, 9, 17, test_stat, 8);
+	let acq = acquisition::make_acquisition(symbol, fs, prn, 9, 7, test_stat, 8);
 	Channel::with_acq(prn, fs, acq)
 }

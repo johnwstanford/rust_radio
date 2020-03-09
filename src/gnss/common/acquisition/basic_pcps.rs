@@ -32,8 +32,8 @@ impl super::Acquisition for Acquisition {
 		Ok(())
 	}
 
-	fn block_for_result(&mut self, prn:usize) -> Result<Option<super::AcquisitionResult>, &str> {
-		if self.buffer.len() >= self.len_fft && prn == self.prn {
+	fn block_for_result(&mut self) -> Result<Option<super::AcquisitionResult>, &str> {
+		if self.buffer.len() >= self.len_fft {
 
 			let signal:Vec<Complex<f64>> = self.buffer.drain(..self.len_fft).collect();
 

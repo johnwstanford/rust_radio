@@ -69,7 +69,7 @@ fn main() {
 			let prn:usize = acq.prn;
 			
 			acq.provide_sample(s).unwrap();
-			match acq.block_for_result(prn) {
+			match acq.block_for_result() {
 				Ok(Some(result)) => {
 
 					let result_str = format!("{:9.2} [Hz], {:6} [chips], {:.8}, {:8.2} [radians]", result.doppler_hz, result.code_phase, result.test_statistic(), result.mf_response.arg());

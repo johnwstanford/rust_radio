@@ -35,8 +35,8 @@ impl super::Acquisition for Acquisition {
 		Ok(())
 	}
 
-	fn block_for_result(&mut self, prn:usize) -> Result<Option<super::AcquisitionResult>, &str> {
-		if self.buffer.len() >= self.len_fft && prn == self.prn {
+	fn block_for_result(&mut self) -> Result<Option<super::AcquisitionResult>, &str> {
+		if self.buffer.len() >= self.len_fft {
 			self.skip_count += 1;
 			if self.skip_count > self.n_skip {
 				self.skip_count = 0;

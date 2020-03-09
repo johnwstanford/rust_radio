@@ -101,10 +101,10 @@ fn main() {
 			acq_cm.provide_sample(s).unwrap();
 			acq_cl.provide_sample(s).unwrap();
 
-			match acq_cm.block_for_result(prn) {
+			match acq_cm.block_for_result() {
 				Ok(Some(result)) => {
 					acq_cl.doppler_freqs = (-48..48).map(|x| ((x as f64) * 0.25) + result.doppler_hz).collect();
-					let record = match acq_cl.block_for_result(prn) {
+					let record = match acq_cl.block_for_result() {
 						Ok(Some(result_cl)) => {
 							eprintln!("PRN {:02} {}, {}", prn, 
 								format!("CM: {:6} [Hz], {:6} [chips], {:.8}", result.doppler_hz, result.code_phase, result.test_statistic()).yellow(), 

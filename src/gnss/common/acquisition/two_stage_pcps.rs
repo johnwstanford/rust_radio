@@ -33,10 +33,10 @@ impl super::Acquisition for Acquisition {
 		State::StageTwo => self.stage_two.provide_sample(sample),
 	}}
 
-	fn block_for_result(&mut self, prn:usize) -> Result<Option<super::AcquisitionResult>, &str> {
+	fn block_for_result(&mut self) -> Result<Option<super::AcquisitionResult>, &str> {
 		let (next_state, ans) = match self.state {
 			State::StageOne => {
-				match self.stage_one.block_for_result(prn) {
+				match self.stage_one.block_for_result() {
 					Ok(Some(super::AcquisitionResult{doppler_hz, doppler_step_hz, code_phase:_, mf_response:_, mf_len:_, input_power_total:_})) => { 
 						self.stage_two.doppler_freqs.clear();
 
@@ -52,7 +52,7 @@ impl super::Acquisition for Acquisition {
 				}
 			},
 			State::StageTwo => {
-				match self.stage_two.block_for_result(prn) {
+				match self.stage_two.block_for_result() {
 					Ok(Some(acq)) => {
 						// The test statistic threshold is set to zero for stage two, so we'll always get a result after the first complete
 						// symbol and we'll compare it to the threshold here.  Either way, we return to stage one 

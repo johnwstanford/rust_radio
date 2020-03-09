@@ -46,8 +46,8 @@ impl super::Acquisition for Acquisition {
 				// Try acquiring an SV
 				let input_power_total:f64 = signal.iter().map(|c| c.re*c.re + c.im*c.im).sum();
 
-				let mut best_match = super::AcquisitionResult{ doppler_hz: 0.0, code_phase: 0, mf_response: Complex{re: 0.0, im: 0.0}, 
-					mf_len: self.len_fft, input_power_total };
+				let mut best_match = super::AcquisitionResult{ doppler_hz: 0.0, doppler_step_hz: (self.fast_freq_inc.abs()) / (self.n_fine as f64),
+					code_phase: 0, mf_response: Complex{re: 0.0, im: 0.0}, mf_len: self.len_fft, input_power_total };
 
 				// Try every frequency and update best_match every time we find a new best
 				for fine_idx in 0..self.n_fine {

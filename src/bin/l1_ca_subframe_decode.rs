@@ -12,7 +12,6 @@ use std::collections::VecDeque;
 use clap::{Arg, App};
 use colored::*;
 use rust_radio::io;
-use rust_radio::gnss::common::acquisition::fast_pcps;
 use rust_radio::gnss::gps_l1_ca::telemetry_decode::subframe::Subframe as SF;
 use rust_radio::gnss::gps_l1_ca::channel;
 use rustfft::num_complex::Complex;
@@ -24,8 +23,9 @@ const NUM_ACTIVE_CHANNELS:usize = 7;
 #[derive(Debug, Serialize, Deserialize)]
 struct SubframeWithMetadata {
 	subframe: SF,
-	carrier_freq_hz:f64,
+	acq_carrier_hz:f64,
 	acq_test_stat:f64,
+	trk_carrier_hz:f64,
 	trk_test_stat:f64,
 	prn:usize,
 }
@@ -54,8 +54,8 @@ fn main() {
 
 	eprintln!("Decoding {} at {} [samples/sec]", &fname, &fs);
 
-	let mut inactive_channels:VecDeque<channel::Channel<fast_pcps::Acquisition>> = (1..=32).map(|prn| channel::new_channel(prn, fs, 0.01)).collect();
-	let mut active_channels:VecDeque<channel::Channel<fast_pcps::Acquisition>>   = inactive_channels.drain(..NUM_ACTIVE_CHANNELS).collect();
+	let mut inactive_channels:VecDeque<channel::DefaultChannel> = (1..=32).map(|prn| channel::new_channel(prn, fs, 0.01)).collect();
+	let mut active_channels:VecDeque<channel::DefaultChannel>   = inactive_channels.drain(..NUM_ACTIVE_CHANNELS).collect();
 
 	let mut all_results:Vec<SubframeWithMetadata> = Vec::new();
 
@@ -63,15 +63,16 @@ fn main() {
 
 		for chn in &mut active_channels {
 			match chn.apply(s) {
-				channel::ChannelResult::Acquisition{ doppler_hz, test_stat } => {
-					eprintln!("{}", format!("PRN {}: Acquired at {} [Hz] doppler, {} test statistic, attempting to track", chn.prn, doppler_hz, test_stat).green());
+				channel::ChannelResult::Acquisition{ doppler_hz, doppler_step_hz, test_stat } => {
+					eprintln!("{}", format!("PRN {}: Acquired at {:.1} +/- {:.1} [Hz] doppler, {} test statistic, attempting to track", chn.prn, doppler_hz, 0.5*doppler_step_hz, test_stat).green());
 				},
 				channel::ChannelResult::Ok{sf:Some(subframe)} => {
 		
 					eprintln!("New Subframe: {}", format!("{:?}", subframe).blue());
 					let sf_with_metadata = SubframeWithMetadata{ subframe, 
-						carrier_freq_hz:   chn.carrier_freq_hz(), 
+						acq_carrier_hz:    chn.last_acq_doppler(),
 						acq_test_stat:     chn.last_acq_test_stat(),
+						trk_carrier_hz:    chn.carrier_freq_hz(), 
 						trk_test_stat:     chn.test_stat(),
 						prn:               chn.prn };
 					all_results.push(sf_with_metadata);

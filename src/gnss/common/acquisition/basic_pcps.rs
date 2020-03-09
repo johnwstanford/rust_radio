@@ -40,7 +40,11 @@ impl super::Acquisition for Acquisition {
 			// Try acquiring an SV
 			let input_power_total:f64 = signal.iter().map(|c| c.re*c.re + c.im*c.im).sum();
 
-			let mut best_match = super::AcquisitionResult{ doppler_hz: 0.0, code_phase: 0, mf_response: Complex{re: 0.0, im: 0.0}, 
+			// Based on the assumption that the spacing is equal between frequencies
+			// Zero indicates that there is no step because there's only one frequency
+			let doppler_step_hz:f64 = if self.doppler_freqs.len() > 1 { self.doppler_freqs[1] - self.doppler_freqs[0] } else { self.doppler_freqs[0] };
+			
+			let mut best_match = super::AcquisitionResult{ doppler_hz: 0.0, doppler_step_hz, code_phase: 0, mf_response: Complex{re: 0.0, im: 0.0}, 
 				mf_len: self.len_fft, input_power_total };
 
 			// Try every frequency and update best_match every time we find a new best

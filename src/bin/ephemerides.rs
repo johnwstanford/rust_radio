@@ -17,7 +17,6 @@ use colored::*;
 use regex::Regex;
 use rustfft::num_complex::Complex;
 use rust_radio::io;
-use rust_radio::gnss::common::acquisition::fast_pcps;
 use rust_radio::gnss::gps_l1_ca::{pvt, channel};
 
 const NUM_ACTIVE_CHANNELS:usize = 7;
@@ -58,14 +57,14 @@ fn main() {
 			let fs:f64 = fs_str.parse().unwrap();
 			eprintln!("Decoding {} at {} [samples/sec]", &fname, &fs);
 		
-			let mut inactive_channels:VecDeque<channel::Channel<fast_pcps::Acquisition>> = (1..=32).map(|prn| channel::new_channel(prn, fs, 0.01)).collect();
-			let mut active_channels:VecDeque<channel::Channel<fast_pcps::Acquisition>>   = inactive_channels.drain(..NUM_ACTIVE_CHANNELS).collect();
+			let mut inactive_channels:VecDeque<channel::DefaultChannel> = (1..=32).map(|prn| channel::new_channel(prn, fs, 0.01)).collect();
+			let mut active_channels:VecDeque<channel::DefaultChannel>   = inactive_channels.drain(..NUM_ACTIVE_CHANNELS).collect();
 
 			for s in io::file_source_i16_complex(&fname).map(|(x, idx)| (Complex{ re: x.0 as f64, im: x.1 as f64 }, idx)) {
 
 				for chn in &mut active_channels {
 					match chn.apply(s) {
-						channel::ChannelResult::Acquisition{ doppler_hz, test_stat } => {
+						channel::ChannelResult::Acquisition{ doppler_hz, doppler_step_hz:_, test_stat } => {
 							eprintln!("{}", format!("PRN {}: Acquired at {} [Hz] doppler, {} test statistic, attempting to track", chn.prn, doppler_hz, test_stat).green());
 						},
 						channel::ChannelResult::Err(e) => eprintln!("{}", format!("PRN {}: Error due to {:?}", chn.prn, e).red()),

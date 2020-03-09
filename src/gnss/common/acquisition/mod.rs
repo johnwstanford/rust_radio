@@ -7,10 +7,12 @@ use self::rustfft::num_traits::Zero;
 
 pub mod basic_pcps;
 pub mod fast_pcps;
+pub mod two_stage_pcps;
 
 #[derive(Debug)]
 pub struct AcquisitionResult {
 	pub doppler_hz:f64,
+	pub doppler_step_hz:f64,
 	pub code_phase:usize,
 	pub mf_response:Complex<f64>,
 	pub mf_len:usize,

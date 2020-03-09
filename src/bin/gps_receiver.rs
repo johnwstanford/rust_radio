@@ -13,7 +13,6 @@ use clap::{Arg, App};
 use colored::*;
 use na::Vector4;
 use rust_radio::io;
-use rust_radio::gnss::common::acquisition::fast_pcps;
 use rust_radio::gnss::gps_l1_ca::{pvt, channel};
 use rust_radio::utils::kinematics;
 use rustfft::num_complex::Complex;
@@ -47,8 +46,8 @@ fn main() {
 
 	eprintln!("Decoding {} at {} [samples/sec]", &fname, &fs);
 
-	let mut inactive_channels:VecDeque<channel::Channel<fast_pcps::Acquisition>> = (1..=32).map(|prn| channel::new_channel(prn, fs, 0.01)).collect();
-	let mut active_channels:VecDeque<channel::Channel<fast_pcps::Acquisition>>   = inactive_channels.drain(..NUM_ACTIVE_CHANNELS).collect();
+	let mut inactive_channels:VecDeque<channel::DefaultChannel> = (1..=32).map(|prn| channel::new_channel(prn, fs, 0.01)).collect();
+	let mut active_channels:VecDeque<channel::DefaultChannel>   = inactive_channels.drain(..NUM_ACTIVE_CHANNELS).collect();
 
 	let pvt_rate_samples:usize = (fs * 0.02) as usize;
 	let mut all_fixes:Vec<pvt::GnssFix> = vec![];
@@ -71,7 +70,7 @@ fn main() {
 			}
 
 			match chn.apply(s) {
-				channel::ChannelResult::Acquisition{ doppler_hz, test_stat } =>
+				channel::ChannelResult::Acquisition{ doppler_hz, doppler_step_hz:_, test_stat } =>
 					eprintln!("PRN {}: Acquired at {} [Hz] doppler, {} test statistic, attempting to track", chn.prn, doppler_hz, test_stat),
 				channel::ChannelResult::Ok{sf:Some(new_sf)} => {
 					if (new_sf.time_of_week() - tow_rcv).abs() > 1.0 { tow_rcv = new_sf.time_of_week() + 0.086 }

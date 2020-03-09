@@ -15,12 +15,14 @@ pub const DEFAULT_DOPPLER_STEP_HZ:usize = 50;
 pub const DEFAULT_DOPPLER_MAX_HZ:i16 = 10000;
 pub const DEFAULT_TEST_STAT_THRESHOLD:f64 = 0.01;
 
+pub type DefaultChannel = Channel<acquisition::fast_pcps::Acquisition>;
+
 type Sample = (Complex<f64>, usize);
 
 #[derive(Debug)]
 pub enum ChannelResult {
 	NotReady(&'static str),
-	Acquisition{ doppler_hz:f64, test_stat:f64 },
+	Acquisition{ doppler_hz:f64, doppler_step_hz:f64, test_stat:f64 },
 	Ok{sf:Option<SF>},
 	Err(DigSigProcErr),
 }
@@ -49,7 +51,7 @@ impl<A: acquisition::Acquisition> Channel<A> {
 				self.acq.provide_sample(s).unwrap();
 				if let Ok(Some(r)) = self.acq.block_for_result(self.prn) {
 					self.trk_tlm.acquire(r.test_statistic(), r.doppler_hz as f64, r.code_phase);
-					ChannelResult::Acquisition{ doppler_hz: r.doppler_hz, test_stat: r.test_statistic() }
+					ChannelResult::Acquisition{ doppler_hz: r.doppler_hz, doppler_step_hz: r.doppler_step_hz, test_stat: r.test_statistic() }
 				} else {
 					ChannelResult::NotReady("Waiting on acquisition")		
 				}
@@ -74,11 +76,11 @@ impl<A: acquisition::Acquisition> Channel<A> {
 
 }
 
-pub fn new_default_channel<A: acquisition::Acquisition>(prn:usize, fs:f64) -> Channel<acquisition::fast_pcps::Acquisition> { 
+pub fn new_default_channel<A: acquisition::Acquisition>(prn:usize, fs:f64) -> DefaultChannel { 
 	new_channel(prn, fs, DEFAULT_TEST_STAT_THRESHOLD) 
 }
 
-pub fn new_channel(prn:usize, fs:f64, test_stat:f64) -> Channel<acquisition::fast_pcps::Acquisition> {
+pub fn new_channel(prn:usize, fs:f64, test_stat:f64) -> DefaultChannel {
 	let symbol:Vec<i8> = gps_l1_ca::signal_modulation::prn_int_sampled(prn, fs);
 	let acq = acquisition::make_acquisition(symbol, fs, prn, 9, 17, test_stat, 8);
 	Channel::with_acq(prn, fs, acq)

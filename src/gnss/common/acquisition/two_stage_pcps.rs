@@ -14,7 +14,7 @@ pub struct Acquisition {
 
 enum State {
 	StageOne,
-	StageTwo,
+	StageTwo{ current_freq_hz:f64, current_step_hz:f64, last_code_phase:usize },
 }
 
 impl Acquisition {
@@ -30,36 +30,61 @@ impl super::Acquisition for Acquisition {
 
 	fn provide_sample(&mut self, sample:(Complex<f64>, usize)) -> Result<(), &str> { match self.state {
 		State::StageOne => self.stage_one.provide_sample(sample),
-		State::StageTwo => self.stage_two.provide_sample(sample),
+		State::StageTwo{ current_freq_hz:_, current_step_hz:_, last_code_phase:_ } => self.stage_two.provide_sample(sample),
 	}}
 
 	fn block_for_result(&mut self) -> Result<Option<super::AcquisitionResult>, &str> {
 		let (next_state, ans) = match self.state {
 			State::StageOne => {
 				match self.stage_one.block_for_result() {
-					Ok(Some(super::AcquisitionResult{doppler_hz, doppler_step_hz, code_phase:_, mf_response:_, mf_len:_, input_power_total:_})) => { 
-						self.stage_two.doppler_freqs.clear();
-
-						let mut freq:f64 = doppler_hz - (0.5*doppler_step_hz);
-						while freq < doppler_hz + (0.5*doppler_step_hz) {
-							self.stage_two.doppler_freqs.push(freq);
-							freq += self.stage_two_resolution_hz;
-						}
+					Ok(Some(acq)) => { 
+						let current_range_hz:f64 = 0.5 * acq.doppler_step_hz;
 						
-						(State::StageTwo, Ok(None))
+						self.stage_two.doppler_freqs.clear();
+						self.stage_two.doppler_freqs.push(acq.doppler_hz - 0.5*current_range_hz);
+						self.stage_two.doppler_freqs.push(acq.doppler_hz + 0.5*current_range_hz);
+						/*eprintln!("PRN {}: Stage one acq at {:.1} +/- {:.1} [Hz] and {} [samples] and {:.6}, trying {:.1} and {:.1} [Hz]", self.stage_two.prn, 
+							acq.doppler_hz, current_range_hz, acq.code_phase, acq.test_statistic(),
+							acq.doppler_hz - 0.5*current_range_hz, 
+							acq.doppler_hz + 0.5*current_range_hz);*/
+						
+						(State::StageTwo{ current_freq_hz: acq.doppler_hz, current_step_hz: current_range_hz, last_code_phase: acq.code_phase }, Ok(None))
 					},
 					_ => (State::StageOne, Ok(None))
 				}
 			},
-			State::StageTwo => {
+			State::StageTwo{ current_freq_hz, current_step_hz, last_code_phase } => {
 				match self.stage_two.block_for_result() {
 					Ok(Some(acq)) => {
 						// The test statistic threshold is set to zero for stage two, so we'll always get a result after the first complete
-						// symbol and we'll compare it to the threshold here.  Either way, we return to stage one 
-						if acq.test_statistic() > self.test_statistic_threshold { (State::StageOne, Ok(Some(acq))) }
-						else                                                    { (State::StageOne, Ok(None))      }
+						// symbol and we'll compare it to the threshold here.
+						if acq.test_statistic() > self.test_statistic_threshold { 
+							// If acquisition failed here, determine whether or not another refinement is needed
+							if acq.doppler_step_hz <= self.stage_two_resolution_hz {
+								// If we've met the step threshold, then we're done
+								(State::StageOne, Ok(Some(acq))) 
+							} else {
+								// Otherwise, make another refinement
+								// TODO: consider comparing the code phase of this acquisition to the previous one to make sure it's within a few chips
+								let current_step_hz:f64 = 0.5 * acq.doppler_step_hz;
+								
+								self.stage_two.doppler_freqs.clear();
+								self.stage_two.doppler_freqs.push(acq.doppler_hz - 0.5*current_step_hz);
+								self.stage_two.doppler_freqs.push(acq.doppler_hz + 0.5*current_step_hz);
+								/*eprintln!("PRN {}: Stage two acq at {:.1} +/- {:.1} [Hz] and {} [samples] and {:.6}, trying {:.1} and {:.1} [Hz]", self.stage_two.prn, 
+									acq.doppler_hz, current_step_hz, acq.code_phase, acq.test_statistic(),
+									acq.doppler_hz - 0.5*current_step_hz, 
+									acq.doppler_hz + 0.5*current_step_hz);*/
+
+								(State::StageTwo{ current_freq_hz: acq.doppler_hz, current_step_hz, last_code_phase: acq.code_phase }, Ok(None))
+							}
+						}
+						else { 
+							// If acquisition failed here, go back to stage one and start over
+							(State::StageOne, Ok(None))      
+						}
 					},
-					_ => (State::StageTwo, Ok(None))
+					_ => (State::StageTwo{ current_freq_hz, current_step_hz, last_code_phase }, Ok(None))
 				}
 			},
 		};

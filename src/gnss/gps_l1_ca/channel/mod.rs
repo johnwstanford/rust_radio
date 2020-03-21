@@ -82,6 +82,6 @@ pub fn new_default_channel<A: acquisition::Acquisition>(prn:usize, fs:f64) -> De
 
 pub fn new_channel(prn:usize, fs:f64, test_stat:f64) -> DefaultChannel {
 	let symbol:Vec<i8> = gps_l1_ca::signal_modulation::prn_int_sampled(prn, fs);
-	let acq = acquisition::two_stage_pcps::Acquisition::new(symbol, fs, prn, 9, 4, 1.0, test_stat, 8);
+	let acq = acquisition::two_stage_pcps::Acquisition::new(symbol, fs, prn, 9, 3, 10.0, test_stat, 8);
 	Channel::with_acq(prn, fs, acq)
 }

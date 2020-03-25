@@ -125,6 +125,7 @@ impl Tracking {
 			self.carrier_inc = Complex{ re: self.carrier_dphase_rad.cos(), im: -self.carrier_dphase_rad.sin() };
 	
 			// Update code tracking
+			// TODO: try other phase detectors
 			self.code_phase -= 1023.0;
 			let code_error = {
 				let e:f64 = self.sum_early.norm();
@@ -254,8 +255,8 @@ pub fn new_default_tracker(prn:usize, acq_freq_hz:f64, fs:f64, bw_pll_hz:f64, bw
 	let tau2_car = (2.0 * zeta) / wn_car;									// [sec]
 
 	// FIR coefficients for both filters have units of [1 / samples]
-	let carrier_filter = filters::new_second_order_fir((pdi + 2.0*tau2_car) / (2.0*tau1_car*fs), (pdi - 2.0*tau2_car) / (2.0*tau1_car*fs));
-	let code_filter    = filters::new_second_order_fir((pdi + 2.0*tau2_cod) / (2.0*tau1_cod*fs), (pdi - 2.0*tau2_cod) / (2.0*tau1_cod*fs));
+	let carrier_filter = filters::new_second_order_fir(800.0 / fs, -729.0 / fs);
+	let code_filter    = filters::new_second_order_fir(400.0 / fs, -343.0 / fs);
 
 	let state = TrackingState::WaitingForInitialLockStatus{ prev_prompt: ZERO, prev_test_stat: 0.0 };
 

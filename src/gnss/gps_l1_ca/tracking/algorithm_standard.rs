@@ -134,24 +134,16 @@ impl Tracking {
 			};
 			self.code_dphase += self.code_filter.apply(code_error);
 
-			// Save the values we'll need for long integration and reset the short integration accumulators for the next cycle
-			let this_input_signal_power:f64  = self.input_signal_power;
-			let this_sum_prompt:Complex<f64> = self.sum_prompt;
-			self.input_signal_power = 0.0;
-			self.sum_early  = ZERO;
-			self.sum_prompt = ZERO;
-			self.sum_late   = ZERO;
-
 			let (result, opt_next_state) = match self.state {
 				TrackingState::WaitingForInitialLockStatus{ ref mut prev_prompt, ref mut prev_test_stat } => {
 
-					let test_stat = this_sum_prompt.norm_sqr()  / (this_input_signal_power * self.code_len_samples);
+					let test_stat = self.sum_prompt.norm_sqr()  / (self.input_signal_power * self.code_len_samples);
 
-					if *prev_test_stat > SHORT_COH_THRESH_PROMOTE_TO_LONG && test_stat > SHORT_COH_THRESH_PROMOTE_TO_LONG && (prev_prompt.re > 0.0) != (this_sum_prompt.re > 0.0) { 		
+					if *prev_test_stat > SHORT_COH_THRESH_PROMOTE_TO_LONG && test_stat > SHORT_COH_THRESH_PROMOTE_TO_LONG && (prev_prompt.re > 0.0) != (self.sum_prompt.re > 0.0) { 		
 						// If the signal is not present, each coherent interval has a 9.9999988871e-01 chance of staying under this threshold
 						// If the signal is present,     each coherent interval has a 3.7330000000e-01 chance of staying under this threshold
 						// So if the signal is present, it should only take about 10 tries to exceed this threshold
-						let next_state = TrackingState::Tracking{ num_short_intervals: 1, sum_prompt_long: this_sum_prompt, input_power_long: this_input_signal_power, test_stat };
+						let next_state = TrackingState::Tracking{ num_short_intervals: 1, sum_prompt_long: self.sum_prompt, input_power_long: self.input_signal_power, test_stat };
 						(TrackingResult::NotReady, Some(next_state))
 					} else if test_stat < SHORT_COH_THRESH_LOSS_OF_LOCK {	
 						// If the signal is not present, each coherent interval has a 9.974e-04 chance of staying under this threshold
@@ -160,15 +152,15 @@ impl Tracking {
 						(TrackingResult::Err(DigSigProcErr::LossOfLock), Some(TrackingState::LostLock))
 					} else {
 						*prev_test_stat   = test_stat;
-						*prev_prompt      = this_sum_prompt;
+						*prev_prompt      = self.sum_prompt;
 						(TrackingResult::NotReady, None)						
 					}
 
 				},
 				TrackingState::Tracking{ ref mut num_short_intervals, ref mut sum_prompt_long, ref mut input_power_long, ref mut test_stat } => {
 					*num_short_intervals += 1;
-					*sum_prompt_long     += this_sum_prompt;
-					*input_power_long    += this_input_signal_power;
+					*sum_prompt_long     += self.sum_prompt;
+					*input_power_long    += self.input_signal_power;
 
 					if *num_short_intervals == 20 { 
 
@@ -198,6 +190,13 @@ impl Tracking {
 				TrackingState::LostLock => (TrackingResult::Err(DigSigProcErr::LossOfLock), None),
 			};
 
+			// Reset the short integration accumulators for the next cycle
+			self.input_signal_power = 0.0;
+			self.sum_early  = ZERO;
+			self.sum_prompt = ZERO;
+			self.sum_late   = ZERO;
+
+			// Transition state if a state transition is required
 			if let Some(next_state) = opt_next_state { self.state = next_state; }
 			
 			result
@@ -232,7 +231,7 @@ impl Tracking {
 
 }
 
-pub fn new_default_tracker(prn:usize, acq_freq_hz:f64, fs:f64, bw_pll_hz:f64, bw_dll_hz:f64) -> Tracking {
+pub fn new_default_tracker(prn:usize, acq_freq_hz:f64, fs:f64, _:f64, _:f64) -> Tracking {
 	let local_code: Vec<Complex<f64>> = gps_l1_ca::signal_modulation::prn_complex(prn);
 	let code_len_samples: f64 = 0.001 * fs;
 
@@ -244,15 +243,6 @@ pub fn new_default_tracker(prn:usize, acq_freq_hz:f64, fs:f64, bw_pll_hz:f64, bw
 	let radial_velocity_factor:f64 = (1.57542e9 + acq_freq_hz) / 1.57542e9;
 	let code_phase      = 0.0;
 	let code_dphase     = (radial_velocity_factor * 1.023e6) / fs;
-
-	let zeta = 0.7;															// []
-	let pdi = 0.001;														// [sec]
-	let wn_cod = (bw_dll_hz * 8.0 * zeta) / (4.0 * zeta * zeta + 1.0);		// [1/sec]
-	let wn_car = (bw_pll_hz * 8.0 * zeta) / (4.0 * zeta * zeta + 1.0);		// [1/sec]
-	let tau1_cod = 1.0  / (wn_cod * wn_cod);								// [sec^2]
-	let tau1_car = 0.25 / (wn_car * wn_car);								// [sec^2]
-	let tau2_cod = (2.0 * zeta) / wn_cod;									// [sec]
-	let tau2_car = (2.0 * zeta) / wn_car;									// [sec]
 
 	// FIR coefficients for both filters have units of [1 / samples]
 	let carrier_filter = filters::new_second_order_fir(800.0 / fs, -729.0 / fs);

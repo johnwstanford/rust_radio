@@ -203,11 +203,11 @@ impl Channel {
 
 }
 
-pub fn new_default_channel(prn:usize, fs:f64) -> Channel { new_channel(prn, fs) }
+pub fn new_default_channel(prn:usize, fs:f64) -> Channel { new_channel(prn, fs, DEFAULT_CARRIER_A1, DEFAULT_CARRIER_A2, DEFAULT_CODE_A1, DEFAULT_CODE_A2) }
 
-pub fn new_channel(prn:usize, fs:f64) -> Channel {
+pub fn new_channel(prn:usize, fs:f64, a1_carr:f64, a2_carr:f64, a1_code:f64, a2_code:f64) -> Channel {
 	let state = ChannelState::AwaitingAcquisition;
-	let trk = tracking::algorithm_standard::new_default_tracker(prn, 0.0, fs, DEFAULT_CARRIER_A1, DEFAULT_CARRIER_A2, DEFAULT_CODE_A1, DEFAULT_CODE_A2);
+	let trk = tracking::algorithm_standard::new_default_tracker(prn, 0.0, fs, a1_carr, a2_carr, a1_code, a2_code);
 	let tlm = telemetry_decode::TelemetryDecoder::new();
 
 	Channel{ prn, fs, state, trk, tlm, last_acq_doppler:0.0, last_acq_test_stat: 0.0, last_sample_idx: 0, 

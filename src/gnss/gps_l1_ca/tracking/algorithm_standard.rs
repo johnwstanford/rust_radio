@@ -28,6 +28,7 @@ const ZERO:Complex<f64> = Complex{ re: 0.0, im: 0.0 };
 // Lock detection
 pub struct Tracking {
 	code_len_samples: f64,
+	pub prn:usize,
 	pub state: TrackingState,
 	pub fs:f64,
 	pub local_code:Vec<Complex<f64>>,
@@ -248,15 +249,30 @@ pub fn new_default_tracker(prn:usize, acq_freq_hz:f64, fs:f64, a1_carr:f64, a2_c
 	let code_dphase     = (radial_velocity_factor * 1.023e6) / fs;
 
 	// FIR coefficients for both filters have units of [1 / samples]
-	let carrier_filter = filters::new_second_order_fir(((a2_carr*a2_carr) + (2.0*a1_carr) - (a1_carr*a1_carr) - 1.0) / (fs * SYMBOL_LEN_SEC), 
-													   (-a1_carr*a2_carr*a2_carr) / (fs * SYMBOL_LEN_SEC));
-	let code_filter    = filters::new_second_order_fir(((a2_code*a2_code) + (2.0*a1_code) - (a1_code*a1_code) - 1.0) / (fs * SYMBOL_LEN_SEC), 
-													   (-a1_code*a2_code*a2_code) / (fs * SYMBOL_LEN_SEC));
+	let carrier_filter = {
+		let a1:f64 = ((a2_carr*a2_carr) + (2.0*a1_carr) - (a1_carr*a1_carr) - 1.0) / SYMBOL_LEN_SEC;
+		let a0:f64 = (-a1_carr*a2_carr*a2_carr) / SYMBOL_LEN_SEC;
+
+		#[cfg(debug_assertions)]
+		eprintln!("Tracker carrier filter coeffs: {:.1}/fs, {:.1}/fs", a1, a0);
+
+		filters::new_second_order_fir(a1/fs, a0/fs)
+	};
+
+	let code_filter = {
+		let a1:f64 = ((a2_code*a2_code) + (2.0*a1_code) - (a1_code*a1_code) - 1.0) / SYMBOL_LEN_SEC;
+		let a0:f64 = (-a1_code*a2_code*a2_code) / SYMBOL_LEN_SEC;
+
+		#[cfg(debug_assertions)]
+		eprintln!("Tracker code filter coeffs: {:.1}/fs, {:.1}/fs", a1, a0);
+
+		filters::new_second_order_fir(a1/fs, a0/fs)
+	};
 
 	let state = TrackingState::WaitingForInitialLockStatus{ prev_prompt: ZERO, prev_test_stat: 0.0 };
 
 	Tracking { 
-		code_len_samples, state, fs, local_code, 
+		code_len_samples, prn, state, fs, local_code, 
 
 		// Carrier and code
 		carrier, carrier_inc, carrier_dphase_rad, code_phase, code_dphase, carrier_filter, code_filter, 

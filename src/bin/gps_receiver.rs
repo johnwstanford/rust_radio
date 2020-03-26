@@ -46,7 +46,7 @@ fn main() {
 
 	eprintln!("Decoding {} at {} [samples/sec]", &fname, &fs);
 
-	let mut inactive_channels:VecDeque<channel::DefaultChannel> = (1..=32).map(|prn| channel::new_channel(prn, fs, 0.01)).collect();
+	let mut inactive_channels:VecDeque<channel::DefaultChannel> = (1..=32).map(|prn| channel::new_channel(prn, fs, 0.008)).collect();
 	let mut active_channels:VecDeque<channel::DefaultChannel>   = inactive_channels.drain(..NUM_ACTIVE_CHANNELS).collect();
 
 	let pvt_rate_samples:usize = (fs * 0.02) as usize;

@@ -13,7 +13,7 @@ use ::gnss::gps_l1_ca::{pvt, telemetry_decode::subframe::Subframe as SF};
 
 pub const DEFAULT_DOPPLER_STEP_HZ:usize = 50;
 pub const DEFAULT_DOPPLER_MAX_HZ:i16 = 10000;
-pub const DEFAULT_TEST_STAT_THRESHOLD:f64 = 0.01;
+pub const DEFAULT_TEST_STAT_THRESHOLD:f64 = 0.008;
 
 pub type DefaultChannel = Channel<acquisition::two_stage_pcps::Acquisition>;
 

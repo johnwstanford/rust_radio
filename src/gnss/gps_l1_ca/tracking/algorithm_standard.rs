@@ -127,7 +127,7 @@ impl Tracking {
 			// Update code tracking
 			// TODO: try other phase detectors
 			self.code_phase -= 1023.0;
-			let code_error = {
+			let code_error:f64 = {
 				let e:f64 = self.sum_early.norm();
 				let l:f64 = self.sum_late.norm();
 				if l+e == 0.0 { 0.0 } else { 0.5 * (l-e) / (l+e) }

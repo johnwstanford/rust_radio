@@ -21,6 +21,8 @@ pub const SHORT_COH_THRESH_PROMOTE_TO_LONG:f64 = 0.008;
 pub const SHORT_COH_THRESH_LOSS_OF_LOCK:f64    = 5.0e-7;
 pub const LONG_COH_THRESH_LOSS_OF_LOCK:f64     = 0.001;
 
+pub const SYMBOL_LEN_SEC:f64 = 1.0e-3;
+
 const ZERO:Complex<f64> = Complex{ re: 0.0, im: 0.0 };
 
 // Lock detection
@@ -232,7 +234,7 @@ impl Tracking {
 
 }
 
-pub fn new_default_tracker(prn:usize, acq_freq_hz:f64, fs:f64, _:f64, _:f64) -> Tracking {
+pub fn new_default_tracker(prn:usize, acq_freq_hz:f64, fs:f64, a1_carr:f64, a2_carr:f64, a1_code:f64, a2_code:f64) -> Tracking {
 	let local_code: Vec<Complex<f64>> = gps_l1_ca::signal_modulation::prn_complex(prn);
 	let code_len_samples: f64 = 0.001 * fs;
 
@@ -246,8 +248,10 @@ pub fn new_default_tracker(prn:usize, acq_freq_hz:f64, fs:f64, _:f64, _:f64) -> 
 	let code_dphase     = (radial_velocity_factor * 1.023e6) / fs;
 
 	// FIR coefficients for both filters have units of [1 / samples]
-	let carrier_filter = filters::new_second_order_fir(800.0 / fs, -729.0 / fs);
-	let code_filter    = filters::new_second_order_fir(400.0 / fs, -343.0 / fs);
+	let carrier_filter = filters::new_second_order_fir(((a2_carr*a2_carr) + (2.0*a1_carr) - (a1_carr*a1_carr) - 1.0) / (fs * SYMBOL_LEN_SEC), 
+													   (-a1_carr*a2_carr*a2_carr) / (fs * SYMBOL_LEN_SEC));
+	let code_filter    = filters::new_second_order_fir(((a2_code*a2_code) + (2.0*a1_code) - (a1_code*a1_code) - 1.0) / (fs * SYMBOL_LEN_SEC), 
+													   (-a1_code*a2_code*a2_code) / (fs * SYMBOL_LEN_SEC));
 
 	let state = TrackingState::WaitingForInitialLockStatus{ prev_prompt: ZERO, prev_test_stat: 0.0 };
 

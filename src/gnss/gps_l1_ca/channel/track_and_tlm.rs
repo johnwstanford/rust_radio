@@ -14,8 +14,11 @@ use ::DigSigProcErr;
 use ::gnss::gps_l1_ca::{pvt, telemetry_decode, tracking};
 use ::gnss::gps_l1_ca::telemetry_decode::subframe;
 
-pub const DEFAULT_PLL_BW_HZ:f64 = 40.0;
-pub const DEFAULT_DLL_BW_HZ:f64 = 4.0;
+pub const DEFAULT_CARRIER_A1:f64 = 0.9;
+pub const DEFAULT_CARRIER_A2:f64 = 0.9;
+pub const DEFAULT_CODE_A1:f64 = 0.7;
+pub const DEFAULT_CODE_A2:f64 = 0.7;
+
 pub const C_METERS_PER_SEC:f64 = 2.99792458e8;    // [m/s] speed of light
 pub const C_METERS_PER_MS:f64  = 2.99792458e5;    // [m/ms] speed of light
 
@@ -204,7 +207,7 @@ pub fn new_default_channel(prn:usize, fs:f64) -> Channel { new_channel(prn, fs) 
 
 pub fn new_channel(prn:usize, fs:f64) -> Channel {
 	let state = ChannelState::AwaitingAcquisition;
-	let trk = tracking::algorithm_standard::new_default_tracker(prn, 0.0, fs, DEFAULT_PLL_BW_HZ, DEFAULT_DLL_BW_HZ);
+	let trk = tracking::algorithm_standard::new_default_tracker(prn, 0.0, fs, DEFAULT_CARRIER_A1, DEFAULT_CARRIER_A2, DEFAULT_CODE_A1, DEFAULT_CODE_A2);
 	let tlm = telemetry_decode::TelemetryDecoder::new();
 
 	Channel{ prn, fs, state, trk, tlm, last_acq_doppler:0.0, last_acq_test_stat: 0.0, last_sample_idx: 0, 

@@ -5,7 +5,6 @@ extern crate serde;
 use std::f64::consts;
 
 use self::rustfft::num_complex::Complex;
-use self::serde::{Serialize, Deserialize};
 
 use ::filters;
 use ::gnss::gps_l1_ca;
@@ -62,7 +61,8 @@ pub enum TrackingResult {
 	Err(DigSigProcErr),
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[cfg(debug_assertions)]
+#[derive(Debug, self::serde::Serialize, self::serde::Deserialize)]
 pub struct TrackingDebug {
 	pub carrier_re:f64,
 	pub carrier_im:f64,
@@ -82,6 +82,7 @@ impl Tracking {
 		_ => 0.0,
 	}}
 
+	#[cfg(debug_assertions)]
 	pub fn debug(&self) -> TrackingDebug {
 		TrackingDebug {
 			carrier_re: self.carrier.re,

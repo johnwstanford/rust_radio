@@ -52,6 +52,11 @@ fn main() {
 	let fname:&str = matches.value_of("filename").unwrap();
 	let fs = matches.value_of("sample_rate_sps").unwrap().parse().unwrap();
 
+	#[cfg(debug_assertions)]
+	{
+		eprintln!("Compiled with DEV profile");
+	}
+
 	eprintln!("Decoding {} at {} [samples/sec]", &fname, &fs);
 
 	let mut inactive_channels:VecDeque<channel::DefaultChannel> = (1..=32).map(|prn| channel::new_channel(prn, fs, 0.008)).collect();

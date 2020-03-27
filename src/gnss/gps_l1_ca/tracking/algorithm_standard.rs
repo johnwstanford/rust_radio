@@ -128,15 +128,24 @@ impl Tracking {
 			self.carrier_dphase_rad += self.carrier_filter.apply(carrier_error);
 			self.carrier_inc = Complex{ re: self.carrier_dphase_rad.cos(), im: -self.carrier_dphase_rad.sin() };
 	
+			#[cfg(debug_assertions)]
+			eprintln!("PRN {} carrier update: carrier=({:.3e})+i({:.3e}), err={:.3e} [rad], dphase={:.3e} [rad/sample]", 
+				self.prn, self.carrier.re, self.carrier.im, carrier_error, self.carrier_dphase_rad);
+
 			// Update code tracking
 			// TODO: try other phase detectors
 			self.code_phase -= 1023.0;
 			let code_error:f64 = {
 				let e:f64 = self.sum_early.norm();
+				let p:f64 = self.sum_prompt.norm();
 				let l:f64 = self.sum_late.norm();
-				if l+e == 0.0 { 0.0 } else { 0.5 * (l-e) / (l+e) }
+				(l-e) / (-2.0*e + 4.0*p + 2.0*l)
 			};
 			self.code_dphase += self.code_filter.apply(code_error);
+
+			#[cfg(debug_assertions)]
+			eprintln!("PRN {} code update: e={:.6e}, p={:.6e}, l={:.6e}, dphase={:.6e} [chips/sample]", 
+				self.prn, self.sum_early.norm(), self.sum_prompt.norm(), self.sum_late.norm(), self.code_dphase);
 
 			let (result, opt_next_state) = match self.state {
 				TrackingState::WaitingForInitialLockStatus{ ref mut prev_prompt, ref mut prev_test_stat } => {

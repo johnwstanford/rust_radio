@@ -3,3 +3,6 @@ authors = ["John Stanford"]
 multilingual = false
 src = "src"
 title = "Rust Radio"
+
+[output.html]
+mathjax-support = true

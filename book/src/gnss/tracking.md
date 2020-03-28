@@ -71,3 +71,50 @@ However, for our purposes, it's more convenient to include the phase error in pl
 	                       0 &    0 &    0 &   1 &   0 \end{bmatrix} 
 	\begin{bmatrix} \hat \omega_{n-1} \\\\ \hat \phi_{n-1} \\\\ \hat \phi_{n-2} \\\\ \tilde \phi_{n-1} \\\\ \tilde \phi_{n-2} \end{bmatrix} \\]
 
+We can characterize the behavior of this matrix using its eigenvalues and eigenvectors.  The eigenvalues are the roots of the characteristic equation:
+
+\\[ -\lambda^5 + 4\lambda^4 - (6 + a_1 \Delta t)\lambda^3 + (4 + 2 a_1 \Delta t - a_0 \Delta t)\lambda^2 - (1 + a_1 \Delta t - 2 a_0 \Delta t)\lambda - a_0 \Delta t \\]
+
+From the characteristic equation, we can use polynomial long division to determine that this matrix will always have a double eigenvalue at 1.  The long division is shown below in an image (it's hard to represent long division in MathJax).
+
+<img alt="Characteristic Polynomial Double Root Factorization" src="../image/characteristic_polynomial_long_div.png" class="center"/>
+
+After factoring out this double root, the remaining polynomial is:
+
+\\[ -\lambda^3 + 2 \lambda^2 - ( 1 + a_1 \Delta t) \lambda - a_0 \Delta t \\]
+
+The double root represents the part of the model that doesn't depend on the filter coefficients.  The remaining third-order polynomial characterized the parts of the model that do depend on the filter coefficients, the parts we get to control.
+
+For the remaining three roots, there are two possibilities.  We can either have one real root and two complex conjugate roots or we can have three real roots.  These are two different ways of designing the filter.  In either case, we pick the three roots we want, find the coefficients of the third-order polynomial that has these roots, then compare these coefficients to the coefficients in terms of the time step and the two filter coefficients.  
+
+We'll start with the case of one real root and two complex conjugate roots.  We'll find that this filter is characterized by two coefficients, which we'll represent using \\( \alpha_1 \\) and \\( \alpha_2 \\), which should both be less than one.  However, there's a limit to how low these coefficients can be, which we'll see.  We'll call this an alpha-filter.  In addition to these two coefficients, we'll represent the angle of the complex conjugates from the positive real axis using \\( \theta \\).  Therefore, we find the polynomial this way:
+
+\\[ (\lambda - \alpha_1) (\lambda - \alpha_2 e^{i \theta}) (\lambda - \alpha_2 e^{-i \theta}) \\]
+
+\\[ (\lambda - \alpha_1) (\lambda^2 - \lambda \alpha_2 e^{i \theta} - \lambda \alpha_2 e^{-i \theta} + {\alpha_2}^2 e^{i \theta} e^{-i \theta}) \\]
+
+\\[ (\lambda - \alpha_1) (\lambda^2 - \lambda \alpha_2 (e^{i \theta} + e^{-i \theta}) + {\alpha_2}^2) \\]
+
+\\[ (\lambda - \alpha_1) (\lambda^2 - 2 \lambda \alpha_2 \cos \theta + {\alpha_2}^2) \\]
+
+\\[ \lambda^3 - (2 \alpha_2 \cos \theta + \alpha_1) \lambda^2 + ({\alpha_2}^2 + 2 \alpha_1 \alpha_2 \cos \theta) \lambda - \alpha_1 {\alpha_2}^2 \\]
+
+\\[ -\lambda^3 + (2 \alpha_2 \cos \theta + \alpha_1) \lambda^2 - ({\alpha_2}^2 + 2 \alpha_1 \alpha_2 \cos \theta) \lambda + \alpha_1 {\alpha_2}^2 \\]
+
+By comparison with the other form of the polynomial, we get:
+
+\\[ 2 = 2 \alpha_2 \cos \theta + \alpha_1 \\]
+
+\\[ 1 + a_1 \Delta t = {\alpha_2}^2 + 2 \alpha_1 \alpha_2 \cos \theta \\]
+
+\\[ -a_0 \Delta t = \alpha_1 {\alpha_2}^2 \\]
+
+We can pick any values for \\( \alpha_1 \\) and \\( \alpha_2 \\) consisent with a constraint that is found by rearranging the first equation:
+
+\\[ 2 = 2 \alpha_2 \cos \theta + \alpha_1 \\]
+
+\\[ \frac{2 - \alpha_1}{2 \alpha_2} = \cos \theta \\]
+
+\\[ \frac{2 - \alpha_1}{2 \alpha_2} <= 1 \\]
+
+Picking values for these coefficients less than one will guarantee that the components of the state vector in the directions of the eigenvectors associated with these roots will decay in magnitude with each state transition.  Over time, the only components of the state vector that remain will be in the direction of the eigenvectors associated with the real double root.  Since the root is double, there's is only one ordinary eigenvector, but there will be a second generalized eigenvector, which we'll show below when we simulate the behavior of the system in the linear space of the generalized eigenvectors.

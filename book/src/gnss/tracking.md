@@ -32,3 +32,42 @@ We'll treat the true carrier frequency as constant.  We'll start by designing th
 We'll start by just using the notation above to write equations describing the system.  First, we integrate our frequency estimate to get our phase estimate using the following equation.
 
 \\[ \hat \phi_n = \hat \phi_{n-1} + \Delta t \hat \omega_{n-1} \\]
+
+There's a similar equation for the true phase but since the true frequency is constant, we can represent it without the explicit frequency term.
+
+\\[ \phi_n = \phi_{n-1} + \Delta t \omega \\]
+
+\\[ \phi_n = \phi_{n-1} + \Delta t (\frac{\phi_{n-1} - \phi_{n-2}}{\Delta t}) \\]
+
+\\[ \phi_n = \phi_{n-1} + \phi_{n-1} - \phi_{n-2} \\]
+
+\\[ \phi_n = 2 \phi_{n-1} - \phi_{n-2} \\]
+
+Now we need an expression for the filter itself.  It's a first-order (2-tap) finite-impulse response (FIR) filter.  The "finite" refers to the fact that it depends on a finite number of the most recent samples.  The output of the filter is used to increment the frequency estimate.
+
+\\[ \hat \omega_n = \hat \omega_{n-1} + a_1 \tilde \phi_{n-1} + a_0 \tilde \phi_{n-2} \\]
+
+\\[ \hat \omega_n = \hat \omega_{n-1} + a_1 (\phi_{n-1} - \hat \phi_{n-1}) + a_0 (\phi_{n-2} - \hat \phi_{n-2}) \\]
+
+\\[ \hat \omega_n = \hat \omega_{n-1} - a_1 \hat \phi_{n-1} - a_0 \hat \phi_{n-2} + a_1 \phi_{n-1} + a_0 \phi_{n-2} \\]
+
+This is already enough to build a state transition matrix.
+
+\\[ \begin{bmatrix} \hat \omega_n \\\\ \hat \phi_{n} \\\\ \hat \phi_{n-1} \\\\ \phi_{n} \\\\ \phi_{n-1} \end{bmatrix} = 
+	\begin{bmatrix}        1 & -a_1 & -a_0 & a_1 & a_0 \\\\ 
+	                \Delta t &    1 &    0 &   0 &   0 \\\\
+	                       0 &    1 &    0 &   0 &   0 \\\\
+	                       0 &    0 &    0 &   2 &  -1 \\\\
+	                       0 &    0 &    0 &   1 &   0 \end{bmatrix} 
+	\begin{bmatrix} \hat \omega_{n-1} \\\\ \hat \phi_{n-1} \\\\ \hat \phi_{n-2} \\\\ \phi_{n-1} \\\\ \phi_{n-2} \end{bmatrix} \\]
+
+However, for our purposes, it's more convenient to include the phase error in place of the true phase.  The following state transition matrix is equivalent.
+
+\\[ \begin{bmatrix} \hat \omega_n \\\\ \hat \phi_{n} \\\\ \hat \phi_{n-1} \\\\ \tilde \phi_{n} \\\\ \tilde \phi_{n-1} \end{bmatrix} = 
+	\begin{bmatrix}        1 &    0 &    0 & a_1 & a_0 \\\\ 
+	                \Delta t &    1 &    0 &   0 &   0 \\\\
+	                       0 &    1 &    0 &   0 &   0 \\\\
+	               -\Delta t &    1 &   -1 &   2 &  -1 \\\\
+	                       0 &    0 &    0 &   1 &   0 \end{bmatrix} 
+	\begin{bmatrix} \hat \omega_{n-1} \\\\ \hat \phi_{n-1} \\\\ \hat \phi_{n-2} \\\\ \tilde \phi_{n-1} \\\\ \tilde \phi_{n-2} \end{bmatrix} \\]
+

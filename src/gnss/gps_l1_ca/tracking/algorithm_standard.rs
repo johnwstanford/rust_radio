@@ -137,11 +137,8 @@ impl Tracking {
 			self.code_phase -= 1023.0;
 			let code_error:f64 = {
 				let e:f64 = self.sum_early.norm();
-				let p:f64 = self.sum_prompt.norm();
 				let l:f64 = self.sum_late.norm();
-				let denom:f64 = -2.0*e + 4.0*p + 2.0*l;
-				if denom == 0.0 { 0.0 }
-				else { (l-e) / denom }
+				if l+e == 0.0 { 0.0 } else { 0.5 * (l-e) / (l+e) }
 			};
 			self.code_dphase += self.code_filter.apply(code_error);
 

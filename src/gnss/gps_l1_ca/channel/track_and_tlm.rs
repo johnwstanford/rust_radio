@@ -12,7 +12,7 @@ use self::serde::{Serialize, Deserialize};
 
 use ::DigSigProcErr;
 use ::gnss::gps_l1_ca::{pvt, telemetry_decode, tracking};
-use ::gnss::gps_l1_ca::telemetry_decode::subframe;
+use ::gnss::gps_l1_ca::telemetry_decode::subframe::{self, Subframe as SF, SubframeBody as SFB};
 
 pub const DEFAULT_CARRIER_A1:f64 = 0.9;
 pub const DEFAULT_CARRIER_A2:f64 = 0.9;
@@ -25,7 +25,6 @@ pub const C_METERS_PER_MS:f64  = 2.99792458e5;    // [m/ms] speed of light
 const SYNCHRO_BUFFER_SIZE:usize = 100;
 
 type Sample = (Complex<f64>, usize);
-type SF = subframe::Subframe;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum ChannelState {
@@ -65,7 +64,9 @@ pub struct Channel {
 	last_acq_doppler:f64,
 	last_acq_test_stat:f64,
 	last_sample_idx:usize,
-	sf_buffer:VecDeque<SF>,
+	last_sf1:Option<subframe::subframe1::Body>,
+	last_sf2:Option<subframe::subframe2::Body>,
+	last_sf3:Option<subframe::subframe3::Body>,
 	synchro_buffer:VecDeque<ChannelSynchro>,
 	calendar_and_ephemeris:Option<pvt::CalendarAndEphemeris>,
 	opt_tow_sec:Option<f64>,
@@ -124,14 +125,33 @@ impl Channel {
 		
 								self.opt_tow_sec = Some(sf.time_of_week());
 
-								// Populate the subframe buffer
-								self.sf_buffer.push_back(sf);
-								while self.sf_buffer.len() > 3 {
-									self.sf_buffer.pop_front();
-								}
+								match sf.body {
+									SFB::Subframe1(sf1) => self.last_sf1 = Some(sf1),
+									SFB::Subframe2(sf2) => self.last_sf2 = Some(sf2),
+									SFB::Subframe3(sf3) => {
+										self.last_sf3 = Some(sf3);
 
-								// Populate channel data derived from subframes
-								self.check_calendar_and_ephemeris();
+										// If we just received subframe 3, we might have a new complete calendar and ephemeris ready
+										match (self.last_sf1, self.last_sf2) {
+											(Some(subframe::subframe1::Body{week_number, code_on_l2:_, ura_index:_, sv_health:_, iodc, t_gd, t_oc, a_f2, a_f1, a_f0}), 
+											 Some(subframe::subframe2::Body{iode:iode2, crs, dn, m0, cuc, e, cus, sqrt_a, t_oe, fit_interval, aodo })) => {
+												// TODO: make other time corrections (ionosphere, etc) 
+												// TODO: account for GPS week rollover possibility
+												// TODO: check for ephemeris validity time
+												// TODO: consider returning a Result where the Err describes the reason for not producing a position
+												if (iodc % 256) == (iode2 as u16) && iode2 == sf3.iode { 
+													let new_calendar_and_ephemeris = pvt::CalendarAndEphemeris { week_number, t_gd, fit_interval, aodo,
+														t_oc:(t_oc as f64), a_f0, a_f1, a_f2, t_oe, sqrt_a, dn, m0, e, omega: sf3.omega, omega0: sf3.omega0, 
+														omega_dot: sf3.omega_dot, cus, cuc, crs, crc: sf3.crc, cis: sf3.cis, cic: sf3.cic, i0: sf3.i0, 
+														idot: sf3.idot, iodc };
+													self.calendar_and_ephemeris = Some(new_calendar_and_ephemeris);
+												}
+											},
+											(_, _) => {}
+										}
+									},
+									_ => { /* No special action for subframes 4 and 5 right now */ }
+								}
 
 								Some(sf)
 							},
@@ -180,27 +200,6 @@ impl Channel {
 		} else { None}
 	}
 
-	fn check_calendar_and_ephemeris(&mut self) {
-		match (self.sf_buffer.get(0), self.sf_buffer.get(1), self.sf_buffer.get(2)) {
-			(Some(SF::Subframe1{common:_, week_number, code_on_l2:_, ura_index:_, sv_health:_, iodc, t_gd, t_oc, a_f2, a_f1, a_f0}), 
-			 Some(SF::Subframe2{common:_, iode:iode2, crs, dn, m0, cuc, e, cus, sqrt_a, t_oe, fit_interval, aodo }), 
-			 Some(SF::Subframe3{common:_, cic, omega0, cis, i0, crc, omega, omega_dot, iode:iode3, idot})) => {
-				// TODO: make other time corrections (ionosphere, etc) 
-				// TODO: account for GPS week rollover possibility
-				// TODO: check for ephemeris validity time
-				// TODO: consider returning a Result where the Err describes the reason for not producing a position
-				if (*iodc % 256) == (*iode2 as u16) && *iode2 == *iode3 { 
-					let new_calendar_and_ephemeris = pvt::CalendarAndEphemeris { week_number:*week_number, t_gd:*t_gd, fit_interval:*fit_interval, aodo:*aodo,
-						t_oc:(*t_oc as f64), a_f0:*a_f0, a_f1:*a_f1, a_f2:*a_f2, t_oe:*t_oe, 
-						sqrt_a:*sqrt_a, dn:*dn, m0:*m0, e:*e, omega:*omega, omega0:*omega0, omega_dot:*omega_dot, cus:*cus, cuc:*cuc, crs:*crs, 
-						crc:*crc, cis:*cis, cic:*cic, i0:*i0, idot:*idot, iodc:*iodc };
-					self.calendar_and_ephemeris = Some(new_calendar_and_ephemeris);
-				}
-			},
-			(_, _, _) => {}
-		}
-	}
-
 }
 
 pub fn new_default_channel(prn:usize, fs:f64) -> Channel { new_channel(prn, fs, DEFAULT_CARRIER_A1, DEFAULT_CARRIER_A2, DEFAULT_CODE_A1, DEFAULT_CODE_A2) }
@@ -211,5 +210,6 @@ pub fn new_channel(prn:usize, fs:f64, a1_carr:f64, a2_carr:f64, a1_code:f64, a2_
 	let tlm = telemetry_decode::TelemetryDecoder::new();
 
 	Channel{ prn, fs, state, trk, tlm, last_acq_doppler:0.0, last_acq_test_stat: 0.0, last_sample_idx: 0, 
-		sf_buffer: VecDeque::new(), synchro_buffer: VecDeque::new(), calendar_and_ephemeris: None, opt_tow_sec: None }
+		synchro_buffer: VecDeque::new(), calendar_and_ephemeris: None, opt_tow_sec: None,
+		last_sf1: None, last_sf2: None, last_sf3: None }
 }

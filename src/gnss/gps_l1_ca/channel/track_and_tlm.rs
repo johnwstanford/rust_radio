@@ -167,7 +167,8 @@ impl Channel {
 
 						// Populate the synchro buffer
 						if let Some(tow_sec) = self.opt_tow_sec {
-							let this_synchro = ChannelSynchro{ rx_time: (bit_idx as f64 + self.trk.code_phase_samples())/self.fs,
+							// TODO: fix this unit mismatch, [chips] vs [samples]
+							let this_synchro = ChannelSynchro{ rx_time: (bit_idx as f64 + self.trk.code_phase_chips())/self.fs,
 								tow_at_current_symbol_ms: tow_sec*1000.0 };
 							self.synchro_buffer.push_back(this_synchro);
 							while self.synchro_buffer.len() > SYNCHRO_BUFFER_SIZE {

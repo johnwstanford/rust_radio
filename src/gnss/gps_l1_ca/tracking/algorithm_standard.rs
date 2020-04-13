@@ -105,6 +105,8 @@ impl Tracking {
 		let x = sample.0 * self.carrier;
 		self.input_signal_power += x.norm_sqr();
 
+		// TODO: consider using a resampled code instead of the 1023-length code in order to avoid
+		// all these floor() calls and f64 -> usize casts
 	    let mut idx:f64 = self.code_phase - 0.5;
 	    while idx.floor() < 0.0    { idx += 1022.0; }
 	    while idx.floor() > 1022.0 { idx -= 1022.0; }

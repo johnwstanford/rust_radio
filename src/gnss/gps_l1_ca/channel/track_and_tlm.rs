@@ -114,6 +114,9 @@ impl Channel {
 			ChannelState::Tracking => { 
 				match self.trk.apply(s) {
 					tracking::algorithm_standard::TrackingResult::Ok{prompt_i, bit_idx} => {
+						// prompt_i is an f64 representing the prompt value of this bit
+						// bit_idx is the index of the last sample that made up this bit
+
 						// The tracker has a lock and produced a bit, so pass it into the telemetry decoder and match on the result
 						if let Some(tow_sec) = &mut self.opt_tow_sec {
 							*tow_sec += 0.02;

@@ -79,7 +79,7 @@ impl Tracking {
 
 	pub fn carrier_freq_hz(&self) -> f64 { (self.carrier_dphase_rad * self.fs) / (2.0 * consts::PI) }
 	pub fn carrier_phase_rad(&self) -> f64 { self.carrier.arg() }
-	pub fn code_phase_chips(&self) -> f64 { self.code_phase }
+	pub fn code_phase_samples(&self) -> f64 { self.code_phase * (self.fs / 1.023e6) }
 	pub fn test_stat(&self) -> f64 { match self.state {
 		TrackingState::Tracking{ num_short_intervals:_, sum_prompt_long:_, input_power_long:_, test_stat } => test_stat,
 		_ => 0.0,

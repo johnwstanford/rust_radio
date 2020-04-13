@@ -42,7 +42,7 @@ pub enum ChannelResult {
 
 struct ChannelSynchro {
 	rx_time: f64,
-	tow_at_current_symbol_ms: f64,
+	tow_ms: f64,
 }
 
 #[derive(Debug, Serialize, Deserialize, Copy, Clone)]
@@ -118,6 +118,7 @@ impl Channel {
 						// bit_idx is the index of the last sample that made up this bit
 
 						// The tracker has a lock and produced a bit, so pass it into the telemetry decoder and match on the result
+						// TODO: consider moving this out of the match block and incrementing by 1/fs
 						if let Some(tow_sec) = &mut self.opt_tow_sec {
 							*tow_sec += 0.02;
 						}
@@ -167,9 +168,10 @@ impl Channel {
 
 						// Populate the synchro buffer
 						if let Some(tow_sec) = self.opt_tow_sec {
-							// TODO: fix this unit mismatch, [chips] vs [samples]
-							let this_synchro = ChannelSynchro{ rx_time: (bit_idx as f64 + self.trk.code_phase_chips())/self.fs,
-								tow_at_current_symbol_ms: tow_sec*1000.0 };
+							let this_synchro = ChannelSynchro { 
+								rx_time: (bit_idx as f64 + 0.5 - self.trk.code_phase_samples())/self.fs,
+								tow_ms:  tow_sec*1000.0 
+							};
 							self.synchro_buffer.push_back(this_synchro);
 							while self.synchro_buffer.len() > SYNCHRO_BUFFER_SIZE {
 								self.synchro_buffer.pop_front();
@@ -192,10 +194,9 @@ impl Channel {
 	pub fn get_observation(&self, rx_time:f64, rx_tow_sec:f64) -> Option<ChannelObservation> {
 		let interp:Option<f64> = self.synchro_buffer.iter().tuple_windows().find(|(a,b)| a.rx_time <= rx_time && b.rx_time >= rx_time).map(|(a,b)| {
 			let time_factor:f64 = (rx_time - a.rx_time) / (b.rx_time - a.rx_time);
-			a.tow_at_current_symbol_ms + ((b.tow_at_current_symbol_ms - a.tow_at_current_symbol_ms) * time_factor)
+			a.tow_ms + ((b.tow_ms - a.tow_ms) * time_factor)
 		});
 
-		//eprintln!("interp_tow={} cae={}", interp.is_some(), self.calendar_and_ephemeris.is_some());
 		if let (Some(interp_tow_ms), Some(cae)) = (interp, self.calendar_and_ephemeris) {
 			let interp_tow_sec = interp_tow_ms / 1000.0;
 			let pseudorange_m:f64 = (rx_tow_sec - interp_tow_sec) * C_METERS_PER_SEC;

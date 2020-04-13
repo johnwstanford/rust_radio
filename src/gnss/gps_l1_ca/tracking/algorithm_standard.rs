@@ -100,8 +100,11 @@ impl Tracking {
 	// Public interface
 	/// Takes a sample in the form of a tuple of the complex sample itself and the sample number.  Returns a TrackingResult.
 	pub fn apply(&mut self, sample:(Complex<f64>, usize)) -> TrackingResult {
-		// Remove the carrier and code modulation
+		// Increment the carrier and code phase
 		self.carrier = self.carrier * self.carrier_inc;
+		self.code_phase += self.code_dphase;
+
+		// Remove the carrier from the new sample and accumulate the power sum
 		let x = sample.0 * self.carrier;
 		self.input_signal_power += x.norm_sqr();
 
@@ -120,8 +123,6 @@ impl Tracking {
 	    if idx.floor() > 1022.0 { idx -= 1022.0; }
 	    self.sum_late   += self.local_code[idx.floor() as usize] * x;			
 		
-		self.code_phase += self.code_dphase;
-
 		if self.code_phase >= 1023.0 {
 			// End of a 1-ms short coherent cycle
 

@@ -9,6 +9,7 @@ use self::rustfft::num_complex::Complex;
 use ::filters;
 use ::gnss::gps_l1_ca;
 use ::DigSigProcErr;
+use ::utils::IntegerClock;
 
 // Design SNR is 0.035 (-14.56 [dB])
 // H0 short test_stat follows an exponential distribution w loc=1.38e-09, scale=5.00e-04
@@ -32,6 +33,9 @@ pub struct Tracking {
 	pub state: TrackingState,
 	pub fs:f64,
 	pub local_code:Vec<Complex<f64>>,
+
+	sv_tow_sec_inner:IntegerClock,
+	sv_tow_sec_outer:IntegerClock,
 
 	// Carrier and code
 	carrier: Complex<f64>,
@@ -80,10 +84,17 @@ impl Tracking {
 	pub fn carrier_freq_hz(&self) -> f64 { (self.carrier_dphase_rad * self.fs) / (2.0 * consts::PI) }
 	pub fn carrier_phase_rad(&self) -> f64 { self.carrier.arg() }
 	pub fn code_phase_samples(&self) -> f64 { self.code_phase * (self.fs / 1.023e6) }
+	pub fn code_dphase(&self) -> f64 { self.code_dphase }
 	pub fn test_stat(&self) -> f64 { match self.state {
 		TrackingState::Tracking{ num_short_intervals:_, sum_prompt_long:_, input_power_long:_, test_stat } => test_stat,
 		_ => 0.0,
 	}}
+
+	pub fn sv_time_of_week(&self) -> f64 { self.sv_tow_sec_outer.time() }
+	pub fn reset_clock(&mut self, t:f64) {
+		self.sv_tow_sec_outer.reset(t);
+		self.sv_tow_sec_inner.reset(t);
+	}
 
 	#[cfg(debug_assertions)]
 	pub fn debug(&self) -> TrackingDebug {
@@ -100,6 +111,8 @@ impl Tracking {
 	// Public interface
 	/// Takes a sample in the form of a tuple of the complex sample itself and the sample number.  Returns a TrackingResult.
 	pub fn apply(&mut self, sample:(Complex<f64>, usize)) -> TrackingResult {
+		self.sv_tow_sec_outer.inc();
+
 		// Increment the carrier and code phase
 		self.carrier = self.carrier * self.carrier_inc;
 		self.code_phase += self.code_dphase;
@@ -117,6 +130,8 @@ impl Tracking {
 		
 		if self.code_phase >= 1023.0 {
 			// End of a 1-ms short coherent cycle
+			self.sv_tow_sec_inner.inc();
+			self.sv_tow_sec_outer.reset(self.sv_tow_sec_inner.time());
 
 			// Update carrier tracking; carrier_error has units [radians]
 			let carrier_error = if self.sum_prompt.re == 0.0 { 0.0 } else { (self.sum_prompt.im / self.sum_prompt.re).atan() };	
@@ -136,6 +151,7 @@ impl Tracking {
 				if l+e == 0.0 { 0.0 } else { 0.5 * (l-e) / (l+e) }
 			};
 			self.code_dphase += self.code_filter.apply(code_error);
+			self.sv_tow_sec_outer.set_clock_rate(self.code_dphase * (self.fs.powi(2) / 1.023e6));
 
 			#[cfg(debug_assertions)]
 			eprintln!("PRN {} code update: e={:.6e}, p={:.6e}, l={:.6e}, dphase={:.6e} [chips/sample]", 
@@ -276,6 +292,9 @@ pub fn new_default_tracker(prn:usize, acq_freq_hz:f64, fs:f64, a1_carr:f64, a2_c
 
 	Tracking { 
 		code_len_samples, prn, state, fs, local_code, 
+
+		sv_tow_sec_inner: IntegerClock::new(1000.0),
+		sv_tow_sec_outer: IntegerClock::new(fs),
 
 		// Carrier and code
 		carrier, carrier_inc, carrier_dphase_rad, code_phase, code_dphase, carrier_filter, code_filter, 

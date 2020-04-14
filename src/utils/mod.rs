@@ -21,6 +21,7 @@ impl IntegerClock {
     }
 
     pub fn inc(&mut self) { self.cycles += 1; }
+    pub fn set_clock_rate(&mut self, hz:f64) { self.clock_rate_hz = hz; }
 
     pub fn time(&self) -> f64 { self.start_time + ((self.cycles as f64)/self.clock_rate_hz) }
     pub fn has_start(&self) -> bool { self.start_time_updated_at_least_once }

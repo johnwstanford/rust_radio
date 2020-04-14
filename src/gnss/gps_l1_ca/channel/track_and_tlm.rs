@@ -8,7 +8,6 @@ use self::serde::{Serialize, Deserialize};
 use ::DigSigProcErr;
 use ::gnss::gps_l1_ca::{pvt, telemetry_decode, tracking};
 use ::gnss::gps_l1_ca::telemetry_decode::subframe::{self, Subframe as SF, SubframeBody as SFB};
-use ::utils::IntegerClock;
 
 pub const DEFAULT_CARRIER_A1:f64 = 0.9;
 pub const DEFAULT_CARRIER_A2:f64 = 0.9;
@@ -55,8 +54,6 @@ pub struct Channel {
 	last_sf2:Option<subframe::subframe2::Body>,
 	last_sf3:Option<subframe::subframe3::Body>,
 	calendar_and_ephemeris:Option<pvt::CalendarAndEphemeris>,
-	sv_tow_sec_inner:IntegerClock,
-	sv_tow_sec_outer:IntegerClock,
 }
 
 impl Channel {
@@ -89,8 +86,6 @@ impl Channel {
 		if s.1 <= self.last_sample_idx && s.1 > 0 { panic!("Somehow got the same sample twice or went backwards"); }
 		self.last_sample_idx = s.1;
 
-		self.sv_tow_sec_outer.inc();
-
 		match self.state {
 			ChannelState::AwaitingAcquisition => ChannelResult::NotReady("Waiting on acquisition"),
 			ChannelState::PullIn(n) => {
@@ -106,14 +101,11 @@ impl Channel {
 						// prompt_i is an f64 representing the prompt value of this bit
 						// bit_idx is the index of the last sample that made up this bit
 
-						self.sv_tow_sec_inner.inc();
-						self.sv_tow_sec_outer.reset(self.sv_tow_sec_inner.time());
-
 						// The tracker has a lock and produced a bit, so pass it into the telemetry decoder and match on the result
 						let sf:Option<SF> = match self.tlm.apply((prompt_i > 0.0, bit_idx)) {
 							telemetry_decode::TelemetryDecoderResult::Ok(sf, _, _) => {
 		
-								self.sv_tow_sec_inner.reset(sf.time_of_week() + (self.trk.code_phase_samples()/self.fs));
+								self.trk.reset_clock(sf.time_of_week() + (self.trk.code_phase_samples()/self.fs));
 
 								match sf.body {
 									SFB::Subframe1(sf1) => self.last_sf1 = Some(sf1),
@@ -167,7 +159,7 @@ impl Channel {
 			// TODO: account for GPS week rollover possibility
 			// TODO: check for ephemeris validity time
 			// TODO: consider returning a Result where the Err describes the reason for not producing a position
-			let interp_tow_sec:f64 = self.sv_tow_sec_outer.time();
+			let interp_tow_sec:f64 = self.trk.sv_time_of_week();
 			let pseudorange_m:f64 = (rx_tow_sec - interp_tow_sec) * C_METERS_PER_SEC;
 			let (pos_ecef, sv_clock) = cae.pos_and_clock(interp_tow_sec);
 			Some(ChannelObservation{ interp_tow_sec, pseudorange_m, pos_ecef, sv_clock, t_gd: cae.t_gd })
@@ -184,7 +176,5 @@ pub fn new_channel(prn:usize, fs:f64, a1_carr:f64, a2_carr:f64, a1_code:f64, a2_
 	let tlm = telemetry_decode::TelemetryDecoder::new();
 
 	Channel{ prn, fs, state, trk, tlm, last_acq_doppler:0.0, last_acq_test_stat: 0.0, last_sample_idx: 0, calendar_and_ephemeris: None, 
-		sv_tow_sec_inner: IntegerClock::new(50.0),
-		sv_tow_sec_outer: IntegerClock::new(fs),
 		last_sf1: None, last_sf2: None, last_sf3: None }
 }

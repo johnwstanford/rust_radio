@@ -20,7 +20,6 @@ pub const DEFAULT_CODE_A1:f64 = 0.7;
 pub const DEFAULT_CODE_A2:f64 = 0.7;
 
 pub const C_METERS_PER_SEC:f64 = 2.99792458e8;    // [m/s] speed of light
-pub const C_METERS_PER_MS:f64  = 2.99792458e5;    // [m/ms] speed of light
 
 const SYNCHRO_BUFFER_SIZE:usize = 100;
 
@@ -42,13 +41,13 @@ pub enum ChannelResult {
 
 struct ChannelSynchro {
 	rx_time: f64,
-	tow_ms: f64,
+	tow_sec: f64,
 }
 
 #[derive(Debug, Serialize, Deserialize, Copy, Clone)]
 pub struct ChannelObservation {
 	pub rx_time: f64,
-	pub interp_tow_ms: f64,
+	pub interp_tow_sec: f64,
 	pub pseudorange_m: f64,
 	pub pos_ecef: (f64, f64, f64),
 	pub sv_clock: f64,
@@ -127,7 +126,7 @@ impl Channel {
 						let sf:Option<SF> = match self.tlm.apply((prompt_i > 0.0, bit_idx)) {
 							telemetry_decode::TelemetryDecoderResult::Ok(sf, _, _) => {
 		
-								self.opt_tow_sec = Some(sf.time_of_week());
+								self.opt_tow_sec = Some(sf.time_of_week() + (self.trk.code_phase_samples()/self.fs));
 
 								match sf.body {
 									SFB::Subframe1(sf1) => self.last_sf1 = Some(sf1),
@@ -170,7 +169,7 @@ impl Channel {
 						if let Some(tow_sec) = self.opt_tow_sec {
 							let this_synchro = ChannelSynchro { 
 								rx_time: (bit_idx as f64 + 0.5 - self.trk.code_phase_samples())/self.fs,
-								tow_ms:  tow_sec*1000.0 
+								tow_sec 
 							};
 							self.synchro_buffer.push_back(this_synchro);
 							while self.synchro_buffer.len() > SYNCHRO_BUFFER_SIZE {
@@ -194,14 +193,13 @@ impl Channel {
 	pub fn get_observation(&self, rx_time:f64, rx_tow_sec:f64) -> Option<ChannelObservation> {
 		let interp:Option<f64> = self.synchro_buffer.iter().tuple_windows().find(|(a,b)| a.rx_time <= rx_time && b.rx_time >= rx_time).map(|(a,b)| {
 			let time_factor:f64 = (rx_time - a.rx_time) / (b.rx_time - a.rx_time);
-			a.tow_ms + ((b.tow_ms - a.tow_ms) * time_factor)
+			a.tow_sec + ((b.tow_sec - a.tow_sec) * time_factor)
 		});
 
-		if let (Some(interp_tow_ms), Some(cae)) = (interp, self.calendar_and_ephemeris) {
-			let interp_tow_sec = interp_tow_ms / 1000.0;
+		if let (Some(interp_tow_sec), Some(cae)) = (interp, self.calendar_and_ephemeris) {
 			let pseudorange_m:f64 = (rx_tow_sec - interp_tow_sec) * C_METERS_PER_SEC;
 			let (pos_ecef, sv_clock) = cae.pos_and_clock(interp_tow_sec);
-			Some(ChannelObservation{ rx_time, interp_tow_ms, pseudorange_m, pos_ecef, sv_clock, t_gd: cae.t_gd })
+			Some(ChannelObservation{ rx_time, interp_tow_sec, pseudorange_m, pos_ecef, sv_clock, t_gd: cae.t_gd })
 		} else { None}
 	}
 

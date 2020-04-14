@@ -81,19 +81,14 @@ fn main() {
 
 	for s in io::file_source_i16_complex(&fname).map(|(x, idx)| (Complex{ re: x.0 as f64, im: x.1 as f64 }, idx)) {
 
-		let current_rx_time:f64 = (s.1 as f64) / fs;
+		let current_rx_time:f64 = (s.1 as f64 + 0.5) / fs;
 		tow_rcv += 1.0 / fs;
 		if tow_rcv > WEEK_SEC { tow_rcv -= WEEK_SEC; }
 
 		let mut obs_this_soln:Vec<channel::track_and_tlm::ChannelObservation> = Vec::new();
 		for chn in &mut active_channels {
-			if (s.1)%pvt_rate_samples == 0 {
-				let opt_co = chn.get_observation(current_rx_time - 0.1, tow_rcv - 0.1);
-				if let Some(co) = opt_co {
-					obs_this_soln.push(co);
-				}
-			}
 
+			// Provide the current sample to the channel first
 			match chn.apply(s) {
 				channel::ChannelResult::Acquisition{ doppler_hz, doppler_step_hz:_, test_stat } =>
 					eprintln!("PRN {}: Acquired at {} [Hz] doppler, {} test statistic, attempting to track", chn.prn, doppler_hz, test_stat),
@@ -104,6 +99,13 @@ fn main() {
 				channel::ChannelResult::Err(e) => 
 					eprintln!("{}", format!("PRN {}: Error due to {:?}", chn.prn, e).red()),
 				_ => {}
+			}
+
+			// Request observations from the channel second
+			if (s.1)%pvt_rate_samples == 0 {
+				if let Some(co) = chn.get_observation(current_rx_time - 0.1, tow_rcv - 0.1) {
+					obs_this_soln.push(co);
+				}
 			}
 		}
 

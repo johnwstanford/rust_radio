@@ -103,7 +103,7 @@ fn main() {
 
 			// Request observations from the channel second
 			if (s.1)%pvt_rate_samples == 0 {
-				if let Some(co) = chn.get_observation(current_rx_time - 0.1, tow_rcv - 0.1) {
+				if let Some(co) = chn.get_observation(tow_rcv) {
 					obs_this_soln.push(co);
 				}
 			}

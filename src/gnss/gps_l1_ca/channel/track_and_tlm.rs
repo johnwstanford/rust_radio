@@ -1,18 +1,14 @@
 
-
-extern crate itertools;
 extern crate rustfft;
 extern crate serde;
 
-use std::collections::VecDeque;
-
 use self::rustfft::num_complex::Complex;
-use self::itertools::Itertools;
 use self::serde::{Serialize, Deserialize};
 
 use ::DigSigProcErr;
 use ::gnss::gps_l1_ca::{pvt, telemetry_decode, tracking};
 use ::gnss::gps_l1_ca::telemetry_decode::subframe::{self, Subframe as SF, SubframeBody as SFB};
+use ::utils::IntegerClock;
 
 pub const DEFAULT_CARRIER_A1:f64 = 0.9;
 pub const DEFAULT_CARRIER_A2:f64 = 0.9;
@@ -20,8 +16,6 @@ pub const DEFAULT_CODE_A1:f64 = 0.7;
 pub const DEFAULT_CODE_A2:f64 = 0.7;
 
 pub const C_METERS_PER_SEC:f64 = 2.99792458e8;    // [m/s] speed of light
-
-const SYNCHRO_BUFFER_SIZE:usize = 100;
 
 type Sample = (Complex<f64>, usize);
 
@@ -39,14 +33,8 @@ pub enum ChannelResult {
 	Err(DigSigProcErr),
 }
 
-struct ChannelSynchro {
-	rx_time: f64,
-	tow_sec: f64,
-}
-
 #[derive(Debug, Serialize, Deserialize, Copy, Clone)]
 pub struct ChannelObservation {
-	pub rx_time: f64,
 	pub interp_tow_sec: f64,
 	pub pseudorange_m: f64,
 	pub pos_ecef: (f64, f64, f64),
@@ -66,9 +54,9 @@ pub struct Channel {
 	last_sf1:Option<subframe::subframe1::Body>,
 	last_sf2:Option<subframe::subframe2::Body>,
 	last_sf3:Option<subframe::subframe3::Body>,
-	synchro_buffer:VecDeque<ChannelSynchro>,
 	calendar_and_ephemeris:Option<pvt::CalendarAndEphemeris>,
-	opt_tow_sec:Option<f64>,
+	sv_tow_sec_inner:IntegerClock,
+	sv_tow_sec_outer:IntegerClock,
 }
 
 impl Channel {
@@ -101,6 +89,8 @@ impl Channel {
 		if s.1 <= self.last_sample_idx && s.1 > 0 { panic!("Somehow got the same sample twice or went backwards"); }
 		self.last_sample_idx = s.1;
 
+		self.sv_tow_sec_outer.inc();
+
 		match self.state {
 			ChannelState::AwaitingAcquisition => ChannelResult::NotReady("Waiting on acquisition"),
 			ChannelState::PullIn(n) => {
@@ -116,17 +106,14 @@ impl Channel {
 						// prompt_i is an f64 representing the prompt value of this bit
 						// bit_idx is the index of the last sample that made up this bit
 
-						// The tracker has a lock and produced a bit, so pass it into the telemetry decoder and match on the result
-						// TODO: consider moving this out of the match block and incrementing by 1/fs
-						if let Some(tow_sec) = &mut self.opt_tow_sec {
-							*tow_sec += 0.02;
-						}
+						self.sv_tow_sec_inner.inc();
+						self.sv_tow_sec_outer.reset(self.sv_tow_sec_inner.time());
 
-						// See if a new subframe is available
+						// The tracker has a lock and produced a bit, so pass it into the telemetry decoder and match on the result
 						let sf:Option<SF> = match self.tlm.apply((prompt_i > 0.0, bit_idx)) {
 							telemetry_decode::TelemetryDecoderResult::Ok(sf, _, _) => {
 		
-								self.opt_tow_sec = Some(sf.time_of_week() + (self.trk.code_phase_samples()/self.fs));
+								self.sv_tow_sec_inner.reset(sf.time_of_week() + (self.trk.code_phase_samples()/self.fs));
 
 								match sf.body {
 									SFB::Subframe1(sf1) => self.last_sf1 = Some(sf1),
@@ -138,10 +125,6 @@ impl Channel {
 										match (self.last_sf1, self.last_sf2) {
 											(Some(subframe::subframe1::Body{week_number, code_on_l2:_, ura_index:_, sv_health:_, iodc, t_gd, t_oc, a_f2, a_f1, a_f0}), 
 											 Some(subframe::subframe2::Body{iode:iode2, crs, dn, m0, cuc, e, cus, sqrt_a, t_oe, fit_interval, aodo })) => {
-												// TODO: make other time corrections (ionosphere, etc) 
-												// TODO: account for GPS week rollover possibility
-												// TODO: check for ephemeris validity time
-												// TODO: consider returning a Result where the Err describes the reason for not producing a position
 												if (iodc % 256) == (iode2 as u16) && iode2 == sf3.iode { 
 													let new_calendar_and_ephemeris = pvt::CalendarAndEphemeris { week_number, t_gd, fit_interval, aodo,
 														t_oc:(t_oc as f64), a_f0, a_f1, a_f2, t_oe, sqrt_a, dn, m0, e, omega: sf3.omega, omega0: sf3.omega0, 
@@ -165,18 +148,6 @@ impl Channel {
 							}
 						};
 
-						// Populate the synchro buffer
-						if let Some(tow_sec) = self.opt_tow_sec {
-							let this_synchro = ChannelSynchro { 
-								rx_time: (bit_idx as f64 + 0.5 - self.trk.code_phase_samples())/self.fs,
-								tow_sec 
-							};
-							self.synchro_buffer.push_back(this_synchro);
-							while self.synchro_buffer.len() > SYNCHRO_BUFFER_SIZE {
-								self.synchro_buffer.pop_front();
-							}
-						}
-
 						ChannelResult::Ok{sf}
 
 					},
@@ -190,17 +161,17 @@ impl Channel {
 		}
 	}
 
-	pub fn get_observation(&self, rx_time:f64, rx_tow_sec:f64) -> Option<ChannelObservation> {
-		let interp:Option<f64> = self.synchro_buffer.iter().tuple_windows().find(|(a,b)| a.rx_time <= rx_time && b.rx_time >= rx_time).map(|(a,b)| {
-			let time_factor:f64 = (rx_time - a.rx_time) / (b.rx_time - a.rx_time);
-			a.tow_sec + ((b.tow_sec - a.tow_sec) * time_factor)
-		});
-
-		if let (Some(interp_tow_sec), Some(cae)) = (interp, self.calendar_and_ephemeris) {
+	pub fn get_observation(&self, rx_tow_sec:f64) -> Option<ChannelObservation> {
+		if let Some(cae) = self.calendar_and_ephemeris {
+			// TODO: make other time corrections (ionosphere, etc) 
+			// TODO: account for GPS week rollover possibility
+			// TODO: check for ephemeris validity time
+			// TODO: consider returning a Result where the Err describes the reason for not producing a position
+			let interp_tow_sec:f64 = self.sv_tow_sec_outer.time();
 			let pseudorange_m:f64 = (rx_tow_sec - interp_tow_sec) * C_METERS_PER_SEC;
 			let (pos_ecef, sv_clock) = cae.pos_and_clock(interp_tow_sec);
-			Some(ChannelObservation{ rx_time, interp_tow_sec, pseudorange_m, pos_ecef, sv_clock, t_gd: cae.t_gd })
-		} else { None}
+			Some(ChannelObservation{ interp_tow_sec, pseudorange_m, pos_ecef, sv_clock, t_gd: cae.t_gd })
+		} else { None }
 	}
 
 }
@@ -212,7 +183,8 @@ pub fn new_channel(prn:usize, fs:f64, a1_carr:f64, a2_carr:f64, a1_code:f64, a2_
 	let trk = tracking::algorithm_standard::new_default_tracker(prn, 0.0, fs, a1_carr, a2_carr, a1_code, a2_code);
 	let tlm = telemetry_decode::TelemetryDecoder::new();
 
-	Channel{ prn, fs, state, trk, tlm, last_acq_doppler:0.0, last_acq_test_stat: 0.0, last_sample_idx: 0, 
-		synchro_buffer: VecDeque::new(), calendar_and_ephemeris: None, opt_tow_sec: None,
+	Channel{ prn, fs, state, trk, tlm, last_acq_doppler:0.0, last_acq_test_stat: 0.0, last_sample_idx: 0, calendar_and_ephemeris: None, 
+		sv_tow_sec_inner: IntegerClock::new(50.0),
+		sv_tow_sec_outer: IntegerClock::new(fs),
 		last_sf1: None, last_sf2: None, last_sf3: None }
 }

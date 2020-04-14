@@ -108,20 +108,12 @@ impl Tracking {
 		let x = sample.0 * self.carrier;
 		self.input_signal_power += x.norm_sqr();
 
-		// TODO: consider using a resampled code instead of the 1023-length code in order to avoid
-		// all these floor() calls and f64 -> usize casts
-	    let mut idx:f64 = self.code_phase - 0.5;
-	    while idx.floor() < 0.0    { idx += 1023.0; }
-	    while idx.floor() > 1022.0 { idx -= 1023.0; }
-	    self.sum_early  += self.local_code[idx.floor() as usize] * x;
-
-	    idx += 0.5;
-	    if idx.floor() > 1022.0 { idx -= 1023.0; }
-	    self.sum_prompt += self.local_code[idx.floor() as usize] * x;
-		
-	    idx += 0.5;
-	    if idx.floor() > 1022.0 { idx -= 1023.0; }
-	    self.sum_late   += self.local_code[idx.floor() as usize] * x;			
+		// Integrate early, prompt, and late sums
+	    let e_idx:usize = if self.code_phase < 0.5 { 1022 } else { (self.code_phase - 0.5).floor() as usize };
+	    
+	    self.sum_early  += self.local_code[e_idx%1023] * x;
+	    self.sum_prompt += self.local_code[(self.code_phase.floor() as usize)%1023] * x;
+	    self.sum_late   += self.local_code[(e_idx+1)%1023] * x;			
 		
 		if self.code_phase >= 1023.0 {
 			// End of a 1-ms short coherent cycle

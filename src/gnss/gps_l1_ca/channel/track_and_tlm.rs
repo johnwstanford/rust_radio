@@ -34,11 +34,12 @@ pub enum ChannelResult {
 
 #[derive(Debug, Serialize, Deserialize, Copy, Clone)]
 pub struct ChannelObservation {
-	pub interp_tow_sec: f64,
+	pub sv_tow_sec: f64,
 	pub pseudorange_m: f64,
 	pub pos_ecef: (f64, f64, f64),
 	pub sv_clock: f64,
 	pub t_gd: f64,
+	pub carrier_freq_hz: f64,
 }
 
 pub struct Channel {
@@ -159,10 +160,11 @@ impl Channel {
 			// TODO: account for GPS week rollover possibility
 			// TODO: check for ephemeris validity time
 			// TODO: consider returning a Result where the Err describes the reason for not producing a position
-			let interp_tow_sec:f64 = self.trk.sv_time_of_week();
-			let pseudorange_m:f64 = (rx_tow_sec - interp_tow_sec) * C_METERS_PER_SEC;
-			let (pos_ecef, sv_clock) = cae.pos_and_clock(interp_tow_sec);
-			Some(ChannelObservation{ interp_tow_sec, pseudorange_m, pos_ecef, sv_clock, t_gd: cae.t_gd })
+			let sv_tow_sec:f64 = self.trk.sv_time_of_week();
+			let pseudorange_m:f64 = (rx_tow_sec - sv_tow_sec) * C_METERS_PER_SEC;
+			let (pos_ecef, sv_clock) = cae.pos_and_clock(sv_tow_sec);
+			let carrier_freq_hz:f64 = self.trk.carrier_freq_hz();
+			Some(ChannelObservation{ sv_tow_sec, pseudorange_m, pos_ecef, sv_clock, t_gd: cae.t_gd, carrier_freq_hz })
 		} else { None }
 	}
 

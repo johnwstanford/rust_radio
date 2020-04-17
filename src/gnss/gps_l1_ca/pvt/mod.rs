@@ -44,13 +44,10 @@ pub fn solve_position_and_time(obs_this_soln:Vec<channel::track_and_tlm::Channel
 				let (e,r) = kinematics::dist_with_sagnac_effect(
 					Vector3::new(ob.pos_ecef.0, ob.pos_ecef.1, ob.pos_ecef.2),
 					Vector3::new(x[0], x[1], x[2]));
-				let (_, el) = kinematics::az_el(pos_wgs84.latitude, pos_wgs84.longitude, pos_wgs84.height_above_ellipsoid, e);
 
-				let sig = ((0.9 / el.sin()) + 5.94).sqrt();
-
-				v[i] = (ob.pseudorange_m + (kinematics::C)*(ob.sv_clock - ob.t_gd) - r - x[3]) / sig;
-				for j in 0..3 { h[(i,j)] = -e[j]/sig; }
-				h[(i,3)] = 1.0/sig;
+				v[i] = (ob.pseudorange_m - r - x[3]);
+				for j in 0..3 { h[(i,j)] = -e[j]; }
+				h[(i,3)] = 1.0;
 			}
 
 

@@ -5,7 +5,7 @@ use self::na::base::{Matrix3, Vector3};
 
 pub const WGS84_SEMI_MAJOR_AXIS_METERS:f64 = 6378137.0;
 pub const WGS84_SEMI_MINOR_AXIS_METERS:f64 = 6356752.314245;
-pub const OMEGA_DOT_E:f64 = 7.2921151467e-5;     // [rad/s] WGS-84 value of the earth's rotation rate
+pub const OMEGA_E:f64 = 7.2921151467e-5;     // [rad/s] WGS-84 value of the earth's rotation rate
 pub const C:f64 = 2.99792458e8;					 // [m/s] speed of light
 
 use std::f64::consts;
@@ -35,7 +35,7 @@ pub fn az_el(lat:f64, lon:f64, h:f64, los_e:Vector3<f64>) -> (f64, f64) {
 pub fn dist_with_sagnac_effect(rs:Vector3<f64>, rr:Vector3<f64>) -> (Vector3<f64>, f64) {
 	let e = rs - rr;
 	let r:f64 = e.norm();
-	(e/r, r + OMEGA_DOT_E * (rs[0]*rr[1] - rs[1]*rr[0])/C)
+	(e/r, r + OMEGA_E * (rs[0]*rr[1] - rs[1]*rr[0])/C)
 }
 
 pub fn ecef_to_wgs84(e1:f64, e2:f64, e3:f64) -> PositionWGS84 {

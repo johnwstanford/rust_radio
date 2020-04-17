@@ -22,6 +22,7 @@ use std::f64::consts;
 pub struct GnssFix {
 	pub pos_ecef:(f64, f64, f64),
 	pub residual_norm:f64,
+	pub residuals: Vec<f64>,
 	pub sv_count:usize,
 	pub current_rx_time: f64,
 	pub obs_this_soln:Vec<channel::track_and_tlm::ChannelObservation>,
@@ -36,7 +37,8 @@ pub fn solve_position_and_time(obs_this_soln:Vec<channel::track_and_tlm::Channel
 
 		// Try to solve for position
 		for _ in 0..MAX_ITER {
-			let pos_wgs84 = kinematics::ecef_to_wgs84(x[0], x[1], x[2]);
+			// Not needed right now, but maybe later
+			// let pos_wgs84 = kinematics::ecef_to_wgs84(x[0], x[1], x[2]);
 
 			let mut h = DMatrix::from_element(n, 4, 0.0);
 
@@ -45,7 +47,7 @@ pub fn solve_position_and_time(obs_this_soln:Vec<channel::track_and_tlm::Channel
 					Vector3::new(ob.pos_ecef.0, ob.pos_ecef.1, ob.pos_ecef.2),
 					Vector3::new(x[0], x[1], x[2]));
 
-				v[i] = (ob.pseudorange_m - r - x[3]);
+				v[i] = ob.pseudorange_m - r - x[3];
 				for j in 0..3 { h[(i,j)] = -e[j]; }
 				h[(i,3)] = 1.0;
 			}
@@ -61,7 +63,8 @@ pub fn solve_position_and_time(obs_this_soln:Vec<channel::track_and_tlm::Channel
 					// The iterative least squares method has converged
 					if x.iter().chain(v.iter()).all(|a| a.is_finite()) {
 						// Return the fix regardless of the residual norm and let the calling scope determine whether it's good enough
-						let fix = GnssFix{pos_ecef:(x[0], x[1], x[2]), residual_norm:v.norm(), sv_count:n, current_rx_time, obs_this_soln };
+						let residuals:Vec<f64> = v.iter().map(|x| *x).collect();
+						let fix = GnssFix{pos_ecef:(x[0], x[1], x[2]), residual_norm:v.norm(), residuals, sv_count:n, current_rx_time, obs_this_soln };
 						return Ok((fix, x))
 					}
 

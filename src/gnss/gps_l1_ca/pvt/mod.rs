@@ -24,6 +24,7 @@ pub struct GnssFix {
 	pub residual_norm:f64,
 	pub residuals: Vec<f64>,
 	pub iono_delay: Vec<f64>,
+	pub az_el: Vec<(f64, f64)>,
 	pub sv_count:usize,
 	pub current_rx_time: f64,
 	pub obs_this_soln:Vec<channel::track_and_tlm::ChannelObservation>,
@@ -70,8 +71,10 @@ pub fn solve_position_and_time(obs_this_soln:Vec<channel::track_and_tlm::Channel
 					if x.iter().chain(v.iter()).all(|a| a.is_finite()) {
 						// Return the fix regardless of the residual norm and let the calling scope determine whether it's good enough
 						let residuals:Vec<f64> = v.iter().map(|x| *x).collect();
+						let az_el:Vec<(f64, f64)> = obs_this_soln.iter().map(|obs| obs.az_el_from((x[0], x[1], x[2]))).collect();
 						let fix = GnssFix{pos_ecef:(x[0], x[1], x[2]), 
-							residual_norm:v.norm(), residuals, iono_delay, 
+							residual_norm:v.norm(), residuals, 
+							iono_delay, az_el,
 							sv_count:n, current_rx_time, obs_this_soln };
 						return Ok((fix, x))
 					}

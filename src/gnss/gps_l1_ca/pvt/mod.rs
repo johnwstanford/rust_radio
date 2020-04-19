@@ -42,17 +42,17 @@ pub fn solve_position_and_time(obs_this_soln:Vec<channel::track_and_tlm::Channel
 
 			let mut h = DMatrix::from_element(n, 4, 0.0);
 
-			let ro = Vector3::new(x[0], x[1], x[2]);
+			let p_ob_e = Vector3::new(x[0], x[1], x[2]);
 			for (i, ob) in obs_this_soln.iter().enumerate() {
-				let rs = Vector3::new(ob.pos_ecef.0, ob.pos_ecef.1, ob.pos_ecef.2);
-				let (e,r) = {
-					let rr = rs - ro;
-					let r:f64 = rr.norm();
-					(rr/r, r)
+				let p_sv_e = Vector3::new(ob.pos_ecef.0, ob.pos_ecef.1, ob.pos_ecef.2);
+				let (p_r_e_norm, p_r_mag) = {
+					let p_r_e = p_sv_e - p_ob_e;
+					let r:f64 = p_r_e.norm();
+					(p_r_e/r, r)
 				};
 
-				v[i] = ob.pseudorange_m - r - x[3];
-				for j in 0..3 { h[(i,j)] = -e[j]; }
+				v[i] = ob.pseudorange_m - p_r_mag - x[3];
+				for j in 0..3 { h[(i,j)] = -p_r_e_norm[j]; }
 				h[(i,3)] = 1.0;
 			}
 

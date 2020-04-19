@@ -35,7 +35,7 @@ pub fn az_el(lat:f64, lon:f64, h:f64, los_e:Vector3<f64>) -> (f64, f64) {
 pub fn dist_with_sagnac_effect(rs:Vector3<f64>, rr:Vector3<f64>) -> (Vector3<f64>, f64) {
 	let e = rs - rr;
 	let r:f64 = e.norm();
-	(e/r, r + OMEGA_E * (rs[0]*rr[1] - rs[1]*rr[0])/C)
+	(e/r, r)
 }
 
 pub fn ecef_to_wgs84(e1:f64, e2:f64, e3:f64) -> PositionWGS84 {

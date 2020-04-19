@@ -42,10 +42,10 @@ pub fn solve_position_and_time(obs_this_soln:Vec<channel::track_and_tlm::Channel
 
 			let mut h = DMatrix::from_element(n, 4, 0.0);
 
+			let ro = Vector3::new(x[0], x[1], x[2]);
 			for (i, ob) in obs_this_soln.iter().enumerate() {
-				let (e,r) = kinematics::dist_with_sagnac_effect(
-					Vector3::new(ob.pos_ecef.0, ob.pos_ecef.1, ob.pos_ecef.2),
-					Vector3::new(x[0], x[1], x[2]));
+				let rs = Vector3::new(ob.pos_ecef.0, ob.pos_ecef.1, ob.pos_ecef.2);
+				let (e,r) = kinematics::dist_with_sagnac_effect(rs,	ro);
 
 				v[i] = ob.pseudorange_m - r - x[3];
 				for j in 0..3 { h[(i,j)] = -e[j]; }

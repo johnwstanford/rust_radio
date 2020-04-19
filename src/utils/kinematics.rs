@@ -32,10 +32,10 @@ pub fn az_el(lat:f64, lon:f64, h:f64, los_e:Vector3<f64>) -> (f64, f64) {
 	if h > -WGS84_SEMI_MAJOR_AXIS_METERS { (az,el) } else { (0.0, 0.5*consts::PI) }
 }
 
-pub fn dist_with_sagnac_effect(rs:Vector3<f64>, rr:Vector3<f64>) -> (Vector3<f64>, f64) {
-	let e = rs - rr;
-	let r:f64 = e.norm();
-	(e/r, r)
+pub fn dist_with_sagnac_effect(rs:Vector3<f64>, ro:Vector3<f64>) -> (Vector3<f64>, f64) {
+	let rr = rs - ro;
+	let r:f64 = rr.norm();
+	(rr/r, r)
 }
 
 pub fn ecef_to_wgs84(e1:f64, e2:f64, e3:f64) -> PositionWGS84 {

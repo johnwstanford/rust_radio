@@ -37,19 +37,15 @@ pub fn solve_position_and_time(obs_this_soln:Vec<channel::track_and_tlm::Channel
 
 		// Try to solve for position
 		for _ in 0..MAX_ITER {
-			// Not needed right now, but maybe later
-			// let pos_wgs84 = kinematics::ecef_to_wgs84(x[0], x[1], x[2]);
 
 			let mut h = DMatrix::from_element(n, 4, 0.0);
 
 			let p_ob_e = Vector3::new(x[0], x[1], x[2]);
 			for (i, ob) in obs_this_soln.iter().enumerate() {
 				let p_sv_e = Vector3::new(ob.pos_ecef.0, ob.pos_ecef.1, ob.pos_ecef.2);
-				let (p_r_e_norm, p_r_mag) = {
-					let p_r_e = p_sv_e - p_ob_e;
-					let r:f64 = p_r_e.norm();
-					(p_r_e/r, r)
-				};
+				let p_r_e = p_sv_e - p_ob_e;
+				let p_r_mag:f64 = p_r_e.norm();
+				let p_r_e_norm  = p_r_e / p_r_mag;
 
 				v[i] = ob.pseudorange_m - p_r_mag - x[3];
 				for j in 0..3 { h[(i,j)] = -p_r_e_norm[j]; }

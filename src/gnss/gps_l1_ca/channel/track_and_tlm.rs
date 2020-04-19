@@ -28,7 +28,7 @@ pub enum ChannelState {
 #[derive(Debug)]
 pub enum ChannelResult {
 	NotReady(&'static str),
-	Ok{sf:Option<SF>},
+	Ok{sf:Option<SF>, new_ionosphere:bool },
 	Err(DigSigProcErr),
 }
 
@@ -55,6 +55,7 @@ pub struct Channel {
 	last_sf2:Option<subframe::subframe2::Body>,
 	last_sf3:Option<subframe::subframe3::Body>,
 	calendar_and_ephemeris:Option<pvt::CalendarAndEphemeris>,
+	ionosphere:Option<pvt::IonosphericModel>,
 }
 
 impl Channel {
@@ -67,6 +68,7 @@ impl Channel {
 	pub fn last_acq_test_stat(&self) -> f64 { self.last_acq_test_stat }
 	pub fn state(&self) -> ChannelState { self.state }
 	pub fn calendar_and_ephemeris(&self) -> Option<pvt::CalendarAndEphemeris> { self.calendar_and_ephemeris }
+	pub fn ionosphere(&self) -> Option<pvt::IonosphericModel> { self.ionosphere }
 
 	pub fn initialize(&mut self, acq_freq:f64, code_phase:usize) {
 		self.state = match code_phase {
@@ -97,6 +99,8 @@ impl Channel {
 				ChannelResult::NotReady("Pulling in signal")
 			},
 			ChannelState::Tracking => { 
+				let mut new_ionosphere = false;
+
 				match self.trk.apply(s) {
 					tracking::algorithm_standard::TrackingResult::Ok{prompt_i, bit_idx} => {
 						// prompt_i is an f64 representing the prompt value of this bit
@@ -129,7 +133,16 @@ impl Channel {
 											(_, _) => {}
 										}
 									},
-									_ => { /* No special action for subframes 4 and 5 right now */ }
+									SFB::Subframe4(sf4) => {
+										match sf4.page {
+											subframe::subframe4::Page::Page18{ alpha0, alpha1, alpha2, alpha3, beta0, beta1, beta2, beta3, .. } => {
+												new_ionosphere = true;
+												self.ionosphere = Some(pvt::IonosphericModel{alpha0, alpha1, alpha2, alpha3, beta0, beta1, beta2, beta3})
+											},
+											_ => { /* No special action for pages other than 18 right now */}
+										}
+									},
+									_ => { /* No special action for subframe 5 right now */ }
 								}
 
 								Some(sf)
@@ -141,7 +154,7 @@ impl Channel {
 							}
 						};
 
-						ChannelResult::Ok{sf}
+						ChannelResult::Ok{sf, new_ionosphere}
 
 					},
 					tracking::algorithm_standard::TrackingResult::NotReady => ChannelResult::NotReady("Waiting on next bit from tracker"),
@@ -177,6 +190,7 @@ pub fn new_channel(prn:usize, fs:f64, a1_carr:f64, a2_carr:f64, a1_code:f64, a2_
 	let trk = tracking::algorithm_standard::new_default_tracker(prn, 0.0, fs, a1_carr, a2_carr, a1_code, a2_code);
 	let tlm = telemetry_decode::TelemetryDecoder::new();
 
-	Channel{ prn, fs, state, trk, tlm, last_acq_doppler:0.0, last_acq_test_stat: 0.0, last_sample_idx: 0, calendar_and_ephemeris: None, 
+	Channel{ prn, fs, state, trk, tlm, last_acq_doppler:0.0, last_acq_test_stat: 0.0, last_sample_idx: 0, 
+		calendar_and_ephemeris: None, ionosphere: None,
 		last_sf1: None, last_sf2: None, last_sf3: None }
 }

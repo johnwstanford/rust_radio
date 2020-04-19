@@ -78,6 +78,7 @@ fn main() {
 	let mut all_fixes:Vec<pvt::GnssFix> = vec![];
 
 	let mut x_master = Vector4::new(0.0, 0.0, 0.0, 0.0);
+	let mut ionosphere:Option<pvt::IonosphericModel> = None;
 
 	for s in io::file_source_i16_complex(&fname).map(|(x, idx)| (Complex{ re: x.0 as f64, im: x.1 as f64 }, idx)) {
 
@@ -92,9 +93,14 @@ fn main() {
 			match chn.apply(s) {
 				channel::ChannelResult::Acquisition{ doppler_hz, doppler_step_hz:_, test_stat } =>
 					eprintln!("PRN {}: Acquired at {} [Hz] doppler, {} test statistic, attempting to track", chn.prn, doppler_hz, test_stat),
-				channel::ChannelResult::Ok{sf:Some(new_sf)} => {
+				channel::ChannelResult::Ok{sf:Some(new_sf), new_ionosphere} => {
 					if (new_sf.time_of_week() - tow_rcv).abs() > 1.0 { tow_rcv = new_sf.time_of_week() + 0.086 }
 					eprintln!("New Subframe: {}", format!("{:?}", new_sf).cyan());
+
+					if new_ionosphere {
+						ionosphere = chn.ionosphere();
+						eprintln!("New Ionospheric Model: {}", format!("{:?}", ionosphere.unwrap()).cyan());
+					}
 				},
 				channel::ChannelResult::Err(e) => 
 					eprintln!("{}", format!("PRN {}: Error due to {:?}", chn.prn, e).red()),
@@ -109,7 +115,7 @@ fn main() {
 			}
 		}
 
-		if let Ok((fix, x)) = pvt::solve_position_and_time(obs_this_soln, x_master, current_rx_time) {
+		if let Ok((fix, x)) = pvt::solve_position_and_time(obs_this_soln, x_master, current_rx_time, ionosphere) {
 			if fix.residual_norm < 400.0 {
 				let new_pos = kinematics::ecef_to_wgs84(fix.pos_ecef.0, fix.pos_ecef.1, fix.pos_ecef.2);
 				eprintln!("{}", format!("Position Fix: {:.5} [deg] lat, {:.5} [deg] lon, {:.1} [m]", 

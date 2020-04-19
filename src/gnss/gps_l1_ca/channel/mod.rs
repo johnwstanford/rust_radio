@@ -23,7 +23,7 @@ type Sample = (Complex<f64>, usize);
 pub enum ChannelResult {
 	NotReady(&'static str),
 	Acquisition{ doppler_hz:f64, doppler_step_hz:f64, test_stat:f64 },
-	Ok{sf:Option<SF>},
+	Ok{sf:Option<SF>, new_ionosphere:bool },
 	Err(DigSigProcErr),
 }
 
@@ -44,6 +44,7 @@ impl<A: acquisition::Acquisition> Channel<A> {
 	pub fn last_acq_test_stat(&self) -> f64 { self.trk_tlm.last_acq_test_stat() }
 	pub fn state(&self) -> track_and_tlm::ChannelState { self.trk_tlm.state() }
 	pub fn calendar_and_ephemeris(&self) -> Option<pvt::CalendarAndEphemeris> { self.trk_tlm.calendar_and_ephemeris() }
+	pub fn ionosphere(&self) -> Option<pvt::IonosphericModel> { self.trk_tlm.ionosphere() }
 
 	pub fn apply(&mut self, s:Sample) -> ChannelResult { 
 		match self.state() {
@@ -57,9 +58,9 @@ impl<A: acquisition::Acquisition> Channel<A> {
 				}
 			},
 			_ => match self.trk_tlm.apply(s) {
-				track_and_tlm::ChannelResult::NotReady(s) => ChannelResult::NotReady(s),
-				track_and_tlm::ChannelResult::Ok{sf}      => ChannelResult::Ok{ sf },
-				track_and_tlm::ChannelResult::Err(e)      => ChannelResult::Err(e)
+				track_and_tlm::ChannelResult::NotReady(s)            => ChannelResult::NotReady(s),
+				track_and_tlm::ChannelResult::Ok{sf, new_ionosphere} => ChannelResult::Ok{ sf, new_ionosphere },
+				track_and_tlm::ChannelResult::Err(e)                 => ChannelResult::Err(e)
 			}
 		}
 

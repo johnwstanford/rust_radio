@@ -97,7 +97,7 @@ fn main() {
 				channel::ChannelResult::Acquisition{ doppler_hz, doppler_step_hz, test_stat } => {
 					eprintln!("{}", format!("PRN {}: Acquired at {:.1} +/- {:.1} [Hz] doppler, {} test statistic, attempting to track", chn.prn, doppler_hz, 0.5*doppler_step_hz, test_stat).green());
 				},
-				channel::ChannelResult::Ok{sf:Some(subframe)} => {
+				channel::ChannelResult::Ok{sf:Some(subframe), ..} => {
 		
 					eprintln!("New Subframe: {}", format!("{:?}", subframe).blue());
 					let sf_with_metadata = SubframeWithMetadata{ subframe, 

@@ -45,7 +45,11 @@ pub fn solve_position_and_time(obs_this_soln:Vec<channel::track_and_tlm::Channel
 			let ro = Vector3::new(x[0], x[1], x[2]);
 			for (i, ob) in obs_this_soln.iter().enumerate() {
 				let rs = Vector3::new(ob.pos_ecef.0, ob.pos_ecef.1, ob.pos_ecef.2);
-				let (e,r) = kinematics::dist_with_sagnac_effect(rs,	ro);
+				let (e,r) = {
+					let rr = rs - ro;
+					let r:f64 = rr.norm();
+					(rr/r, r)
+				};
 
 				v[i] = ob.pseudorange_m - r - x[3];
 				for j in 0..3 { h[(i,j)] = -e[j]; }

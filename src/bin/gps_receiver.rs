@@ -86,7 +86,7 @@ fn main() {
 		tow_rcv += 1.0 / fs;
 		if tow_rcv > WEEK_SEC { tow_rcv -= WEEK_SEC; }
 
-		let mut obs_this_soln:Vec<channel::track_and_tlm::ChannelObservation> = Vec::new();
+		let mut obs_this_soln:Vec<pvt::Observation> = Vec::new();
 		for chn in &mut active_channels {
 
 			// Provide the current sample to the channel first

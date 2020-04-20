@@ -66,7 +66,7 @@ impl<A: acquisition::Acquisition> Channel<A> {
 
 	}
 
-	pub fn get_observation(&self, rx_tow_sec:f64) -> Option<track_and_tlm::ChannelObservation> {
+	pub fn get_observation(&self, rx_tow_sec:f64) -> Option<pvt::Observation> {
 		self.trk_tlm.get_observation(rx_tow_sec)
 	}
 

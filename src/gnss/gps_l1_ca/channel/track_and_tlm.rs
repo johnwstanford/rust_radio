@@ -1,14 +1,10 @@
 
-extern crate nalgebra as na;
 extern crate rustfft;
 extern crate serde;
 
-use self::na::base::{Matrix3, Matrix3x1, U3, U1};
 use self::rustfft::num_complex::Complex;
-use self::serde::{Serialize, Deserialize};
 
 use ::DigSigProcErr;
-use ::utils::kinematics;
 use ::gnss::gps_l1_ca::{pvt, telemetry_decode, tracking};
 use ::gnss::gps_l1_ca::telemetry_decode::subframe::{self, Subframe as SF, SubframeBody as SFB};
 
@@ -33,46 +29,6 @@ pub enum ChannelResult {
 	NotReady(&'static str),
 	Ok{sf:Option<SF>, new_ionosphere:bool },
 	Err(DigSigProcErr),
-}
-
-#[derive(Debug, Serialize, Deserialize, Copy, Clone)]
-pub struct ChannelObservation {
-	pub sv_tow_sec: f64,
-	pub pseudorange_m: f64,
-	pub pos_ecef: (f64, f64, f64),
-	pub sv_clock: f64,
-	pub t_gd: f64,
-	pub carrier_freq_hz: f64,
-}
-
-impl ChannelObservation {
-	
-	pub fn az_el_from(&self, obs_ecef:(f64, f64, f64)) -> (f64, f64) {
-		let po_e = Matrix3x1::from_row_slice_generic(U3, U1, &[obs_ecef.0, obs_ecef.1, obs_ecef.2]);
-		let ps_e = Matrix3x1::from_row_slice_generic(U3, U1, &[self.pos_ecef.0,  self.pos_ecef.1,  self.pos_ecef.2 ]);
-
-		// Vector from the observer to the SV in the ECEF frame
-		let r_e = ps_e - po_e;
-
-		let obs_wgs84 = kinematics::ecef_to_wgs84(obs_ecef.0, obs_ecef.1, obs_ecef.2);
-		let dcm_le = match obs_wgs84 {
-			kinematics::PositionWGS84 { latitude:phi, longitude:lam, height_above_ellipsoid:_ } => {
-				Matrix3::new(-phi.sin()*lam.cos(), -phi.sin()*lam.sin(),  phi.cos(),
-					         -lam.sin(),            lam.cos(),            0.0,
-					         -phi.cos()*lam.cos(), -phi.cos()*lam.cos(), -phi.sin())
-			}
-		};
-
-		// Vector from the observer to the SV in the local-level frame
-		let r_l = dcm_le * r_e;
-
-		let r_horizontal:f64 = (r_l[(0,0)].powi(2) + r_l[(1,0)].powi(2)).sqrt();
-		let az_radians:f64 = r_l[(1,0)].atan2(r_l[(0,0)]);
-		let el_radians:f64 = r_l[(2,0)].atan2(r_horizontal);
-
-		(az_radians, el_radians)
-	}
-
 }
 
 pub struct Channel {
@@ -200,7 +156,7 @@ impl Channel {
 		}
 	}
 
-	pub fn get_observation(&self, rx_tow_sec:f64) -> Option<ChannelObservation> {
+	pub fn get_observation(&self, rx_tow_sec:f64) -> Option<pvt::Observation> {
 		if let Some(cae) = self.calendar_and_ephemeris {
 			// TODO: make other time corrections (ionosphere, etc) 
 			// TODO: account for GPS week rollover possibility
@@ -210,7 +166,7 @@ impl Channel {
 			let (pos_ecef, sv_clock) = cae.pos_and_clock(sv_tow_sec);
 			let carrier_freq_hz:f64 = self.trk.carrier_freq_hz();
 			let pseudorange_m:f64 = (rx_tow_sec - sv_tow_sec + sv_clock - cae.t_gd) * C_METERS_PER_SEC;
-			Some(ChannelObservation{ sv_tow_sec, pseudorange_m, pos_ecef, sv_clock, t_gd: cae.t_gd, carrier_freq_hz })
+			Some(pvt::Observation{ sv_tow_sec, pseudorange_m, pos_ecef, sv_clock, t_gd: cae.t_gd, carrier_freq_hz })
 		} else { None }
 	}
 

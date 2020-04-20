@@ -6,7 +6,6 @@ use self::serde::{Serialize, Deserialize};
 use self::na::base::{Matrix3, Matrix3x1, DMatrix, Vector3, Vector4, DVector, U3, U1};
 
 use ::utils::kinematics;
-use ::gnss::gps_l1_ca::channel;
 
 pub const MU:f64 = 3.986005e14;                  // [m^3/s^2] WGS-84 value of the earth's gravitational constant
 pub const OMEGA_DOT_E:f64 = 7.2921151467e-5;     // [rad/s] WGS-84 value of the earth's rotation rate
@@ -18,6 +17,46 @@ const SV_COUNT_THRESHOLD:usize = 5;
 
 use std::f64::consts;
 
+#[derive(Debug, Serialize, Deserialize, Copy, Clone)]
+pub struct Observation {
+	pub sv_tow_sec: f64,
+	pub pseudorange_m: f64,
+	pub pos_ecef: (f64, f64, f64),
+	pub sv_clock: f64,
+	pub t_gd: f64,
+	pub carrier_freq_hz: f64,
+}
+
+impl Observation {
+	
+	pub fn az_el_from(&self, obs_ecef:(f64, f64, f64)) -> (f64, f64) {
+		let po_e = Matrix3x1::from_row_slice_generic(U3, U1, &[obs_ecef.0, obs_ecef.1, obs_ecef.2]);
+		let ps_e = Matrix3x1::from_row_slice_generic(U3, U1, &[self.pos_ecef.0,  self.pos_ecef.1,  self.pos_ecef.2 ]);
+
+		// Vector from the observer to the SV in the ECEF frame
+		let r_e = ps_e - po_e;
+
+		let obs_wgs84 = kinematics::ecef_to_wgs84(obs_ecef.0, obs_ecef.1, obs_ecef.2);
+		let dcm_le = match obs_wgs84 {
+			kinematics::PositionWGS84 { latitude:phi, longitude:lam, height_above_ellipsoid:_ } => {
+				Matrix3::new(-phi.sin()*lam.cos(), -phi.sin()*lam.sin(),  phi.cos(),
+					         -lam.sin(),            lam.cos(),            0.0,
+					         -phi.cos()*lam.cos(), -phi.cos()*lam.cos(), -phi.sin())
+			}
+		};
+
+		// Vector from the observer to the SV in the local-level frame
+		let r_l = dcm_le * r_e;
+
+		let r_horizontal:f64 = (r_l[(0,0)].powi(2) + r_l[(1,0)].powi(2)).sqrt();
+		let az_radians:f64 = r_l[(1,0)].atan2(r_l[(0,0)]);
+		let el_radians:f64 = r_l[(2,0)].atan2(r_horizontal);
+
+		(az_radians, el_radians)
+	}
+
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct GnssFix {
 	pub pos_ecef:(f64, f64, f64),
@@ -27,10 +66,10 @@ pub struct GnssFix {
 	pub az_el: Vec<(f64, f64)>,
 	pub sv_count:usize,
 	pub current_rx_time: f64,
-	pub obs_this_soln:Vec<channel::track_and_tlm::ChannelObservation>,
+	pub obs_this_soln:Vec<Observation>,
 }
 
-pub fn solve_position_and_time(obs_this_soln:Vec<channel::track_and_tlm::ChannelObservation>, x0:Vector4<f64>, current_rx_time:f64, opt_iono:Option<IonosphericModel>) -> Result<(GnssFix, Vector4<f64>), &'static str> {
+pub fn solve_position_and_time(obs_this_soln:Vec<Observation>, x0:Vector4<f64>, current_rx_time:f64, opt_iono:Option<IonosphericModel>) -> Result<(GnssFix, Vector4<f64>), &'static str> {
 	if obs_this_soln.len() >= SV_COUNT_THRESHOLD {
 		let n = obs_this_soln.len();
 

@@ -25,6 +25,7 @@ pub struct GnssFix {
 	pub obs_this_soln:Vec<Observation>,
 }
 
+// This struct is populated by the tracking and telemetry decoding modules and only depends on SV state
 #[derive(Debug, Serialize, Deserialize, Copy, Clone)]
 pub struct Observation {
 	pub sv_tow_sec: f64,
@@ -35,8 +36,30 @@ pub struct Observation {
 	pub carrier_freq_hz: f64,
 }
 
+// A CompletedObservation contains data the depends on the observer state in addition to the SV state
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct CompletedObservation {
+	residual: f64,
+	p_r_mag: f64,
+	p_r_e_norm: Vec<f64>,
+}
+
 impl Observation {
 	
+	pub fn complete(&self, x:Vector4<f64>) -> CompletedObservation {
+		let p_ob_e = Vector3::new(x[0], x[1], x[2]);
+		let p_sv_e = Vector3::new(self.pos_ecef.0, self.pos_ecef.1, self.pos_ecef.2);
+		
+		// Position of the SV relative to the observer
+		let p_r_e = p_sv_e - p_ob_e;
+		let p_r_mag:f64 = p_r_e.norm();
+		let p_r_e_norm  = p_r_e / p_r_mag;
+
+		let residual = self.pseudorange_m - p_r_mag - x[3];
+		let p_r_e_norm_vec:Vec<f64> = (0..3).map(|j| p_r_e_norm[j] ).collect();
+		CompletedObservation{ residual, p_r_mag, p_r_e_norm: p_r_e_norm_vec }
+	}
+
 	pub fn az_el_from(&self, obs_ecef:(f64, f64, f64)) -> (f64, f64) {
 		let po_e = Matrix3x1::from_row_slice_generic(U3, U1, &[obs_ecef.0, obs_ecef.1, obs_ecef.2]);
 		let ps_e = Matrix3x1::from_row_slice_generic(U3, U1, &[self.pos_ecef.0,  self.pos_ecef.1,  self.pos_ecef.2 ]);
@@ -79,16 +102,12 @@ pub fn solve_position_and_time(obs_this_soln:Vec<Observation>, x0:Vector4<f64>, 
 
 			let mut h = DMatrix::from_element(n, 4, 0.0);
 
-			let p_ob_e = Vector3::new(x[0], x[1], x[2]);
-			for (i, ob) in obs_this_soln.iter().enumerate() {
-				let p_sv_e = Vector3::new(ob.pos_ecef.0, ob.pos_ecef.1, ob.pos_ecef.2);
-				let p_r_e = p_sv_e - p_ob_e;
-				let p_r_mag:f64 = p_r_e.norm();
-				let p_r_e_norm  = p_r_e / p_r_mag;
+			for (i, ob) in obs_this_soln.iter().map(|obs| obs.complete(x)).enumerate() {
 
-				v[i] = ob.pseudorange_m - p_r_mag - x[3];
-				for j in 0..3 { h[(i,j)] = -p_r_e_norm[j]; }
+				v[i] = ob.residual;
+				for j in 0..3 { h[(i,j)] = -ob.p_r_e_norm[j]; }
 				h[(i,3)] = 1.0;
+			
 			}
 
 

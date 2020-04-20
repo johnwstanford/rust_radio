@@ -5,6 +5,8 @@ use self::rustfft::FFTplanner;
 use self::rustfft::num_complex::Complex;
 use self::rustfft::num_traits::Zero;
 
+use ::Sample;
+
 pub mod basic_pcps;
 pub mod fast_pcps;
 pub mod two_stage_pcps;
@@ -26,7 +28,7 @@ impl AcquisitionResult {
 }
 
 pub trait Acquisition {
-	fn provide_sample(&mut self, sample:(Complex<f64>, usize)) -> Result<(), &str>;
+	fn provide_sample(&mut self, sample:&Sample) -> Result<(), &str>;
 	fn block_for_result(&mut self) -> Result<Option<AcquisitionResult>, &str>;
 }
 

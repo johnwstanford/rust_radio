@@ -11,7 +11,7 @@ use std::collections::VecDeque;
 
 use clap::{Arg, App};
 use colored::*;
-use rust_radio::io;
+use rust_radio::{io, Sample};
 use rust_radio::gnss::gps_l1_ca::telemetry_decode::subframe::Subframe as SF;
 use rust_radio::gnss::gps_l1_ca::channel;
 use rustfft::num_complex::Complex;
@@ -90,10 +90,10 @@ fn main() {
 
 	let mut all_results:Vec<SubframeWithMetadata> = Vec::new();
 
-	for s in io::file_source_i16_complex(&fname).map(|(x, idx)| (Complex{ re: x.0 as f64, im: x.1 as f64 }, idx)) {
+	for s in io::file_source_i16_complex(&fname).map(|(x, idx)| Sample{ val: Complex{ re: x.0 as f64, im: x.1 as f64 }, idx }) {
 
 		for chn in &mut active_channels {
-			match chn.apply(s) {
+			match chn.apply(&s) {
 				channel::ChannelResult::Acquisition{ doppler_hz, doppler_step_hz, test_stat } => {
 					eprintln!("{}", format!("PRN {}: Acquired at {:.1} +/- {:.1} [Hz] doppler, {} test statistic, attempting to track", chn.prn, doppler_hz, 0.5*doppler_step_hz, test_stat).green());
 				},
@@ -114,13 +114,13 @@ fn main() {
 		}
 
 		// Every 0.1 sec, move channels without a signal lock to the inactive buffer and replace them with new ones
-		if (s.1 % (fs as usize / 10) == 0) && (s.1 > 0) {
+		if (s.idx % (fs as usize / 10) == 0) && (s.idx > 0) {
 			for _ in 0..NUM_ACTIVE_CHANNELS {
 				let this_channel = active_channels.pop_front().unwrap();
 				if this_channel.state() == channel::track_and_tlm::ChannelState::AwaitingAcquisition {
 					// Move this channel to inactive and replace it
 					let replacement_channel = inactive_channels.pop_front().unwrap();
-					eprintln!("{:.1} [sec]: Putting PRN {} in the inactive buffer, replacing with PRN {}", (s.1 as f64)/fs, this_channel.prn, replacement_channel.prn);
+					eprintln!("{:.1} [sec]: Putting PRN {} in the inactive buffer, replacing with PRN {}", (s.idx as f64)/fs, this_channel.prn, replacement_channel.prn);
 					inactive_channels.push_back(this_channel);
 					active_channels.push_back(replacement_channel);
 				} else {

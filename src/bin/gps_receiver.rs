@@ -12,7 +12,7 @@ use std::collections::VecDeque;
 use clap::{Arg, App};
 use colored::*;
 use na::Vector4;
-use rust_radio::io;
+use rust_radio::{io, Sample};
 use rust_radio::gnss::gps_l1_ca::{pvt, channel};
 use rust_radio::utils::kinematics;
 use rustfft::num_complex::Complex;
@@ -80,9 +80,9 @@ fn main() {
 	let mut x_master = Vector4::new(0.0, 0.0, 0.0, 0.0);
 	let mut ionosphere:Option<pvt::ionosphere::Model> = None;
 
-	for s in io::file_source_i16_complex(&fname).map(|(x, idx)| (Complex{ re: x.0 as f64, im: x.1 as f64 }, idx)) {
+	for s in io::file_source_i16_complex(&fname).map(|(x, idx)| Sample{ val: Complex{ re: x.0 as f64, im: x.1 as f64 }, idx }) {
 
-		let current_rx_time:f64 = (s.1 as f64 + 0.5) / fs;
+		let current_rx_time:f64 = (s.idx as f64 + 0.5) / fs;
 		tow_rcv += 1.0 / fs;
 		if tow_rcv > WEEK_SEC { tow_rcv -= WEEK_SEC; }
 
@@ -90,7 +90,7 @@ fn main() {
 		for chn in &mut active_channels {
 
 			// Provide the current sample to the channel first
-			match chn.apply(s) {
+			match chn.apply(&s) {
 				channel::ChannelResult::Acquisition{ doppler_hz, doppler_step_hz:_, test_stat } =>
 					eprintln!("PRN {}: Acquired at {} [Hz] doppler, {} test statistic, attempting to track", chn.prn, doppler_hz, test_stat),
 				channel::ChannelResult::Ok{sf:Some(new_sf), new_ionosphere} => {
@@ -108,7 +108,7 @@ fn main() {
 			}
 
 			// Request observations from the channel second
-			if (s.1)%pvt_rate_samples == 0 {
+			if (s.idx)%pvt_rate_samples == 0 {
 				if let Some(co) = chn.get_observation(tow_rcv) {
 					obs_this_soln.push(co);
 				}
@@ -128,7 +128,7 @@ fn main() {
 		}
 
 		// Every 0.1 sec, move channels without a signal lock to the inactive buffer and replace them with new ones
-		if (s.1 % (fs as usize / 10) == 0) && (s.1 > 0) {
+		if (s.idx % (fs as usize / 10) == 0) && (s.idx > 0) {
 			for _ in 0..NUM_ACTIVE_CHANNELS {
 				let this_channel = active_channels.pop_front().unwrap();
 				if this_channel.state() == channel::track_and_tlm::ChannelState::AwaitingAcquisition {

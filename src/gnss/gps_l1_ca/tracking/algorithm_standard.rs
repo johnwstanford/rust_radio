@@ -6,9 +6,8 @@ use std::f64::consts;
 
 use self::rustfft::num_complex::Complex;
 
-use ::filters;
+use ::{filters, Sample, DigSigProcErr};
 use ::gnss::gps_l1_ca;
-use ::DigSigProcErr;
 use ::utils::IntegerClock;
 
 // Design SNR is 0.035 (-14.56 [dB])
@@ -110,7 +109,7 @@ impl Tracking {
 
 	// Public interface
 	/// Takes a sample in the form of a tuple of the complex sample itself and the sample number.  Returns a TrackingResult.
-	pub fn apply(&mut self, sample:(Complex<f64>, usize)) -> TrackingResult {
+	pub fn apply(&mut self, sample:&Sample) -> TrackingResult {
 		self.sv_tow_sec_outer.inc();
 
 		// Increment the carrier and code phase
@@ -118,7 +117,7 @@ impl Tracking {
 		self.code_phase += self.code_dphase;
 
 		// Remove the carrier from the new sample and accumulate the power sum
-		let x = sample.0 * self.carrier;
+		let x = sample.val * self.carrier;
 		self.input_signal_power += x.norm_sqr();
 
 		// Integrate early, prompt, and late sums
@@ -205,7 +204,7 @@ impl Tracking {
 							// threshold with H1 with a vanishingly small likelihood, i.e. this should be a very good indicator of 
 							// the lock status without any need for other filtering or anything like that
 							(TrackingResult::Err(DigSigProcErr::LossOfLock), Some(TrackingState::LostLock))
-						} else { (TrackingResult::Ok{ prompt_i, bit_idx: sample.1}, None) }
+						} else { (TrackingResult::Ok{ prompt_i, bit_idx: sample.idx}, None) }
 					} 
 					else if *num_short_intervals > 20 { panic!("self.num_short_intervals = {}", *num_short_intervals); }
 					else                              { (TrackingResult::NotReady, None)                               }

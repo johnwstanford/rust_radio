@@ -9,7 +9,7 @@ extern crate serde;
 
 use clap::{Arg, App};
 use colored::*;
-use rust_radio::io;
+use rust_radio::{io, Sample};
 use rust_radio::gnss::common::acquisition;
 use rust_radio::gnss::common::acquisition::Acquisition;
 use rust_radio::gnss::common::acquisition::fast_pcps;
@@ -63,17 +63,17 @@ fn main() {
 
 	let mut all_records:Vec<AcquisitionRecord> = vec![];
 
-	'outer: for s in io::file_source_i16_complex(&fname).map(|(x, idx)| (Complex{ re: x.0 as f64, im: x.1 as f64 }, idx)) {
+	'outer: for s in io::file_source_i16_complex(&fname).map(|(x, idx)| Sample{ val: Complex{ re: x.0 as f64, im: x.1 as f64 }, idx }) {
 
 		for acq in &mut acqs {
 			let prn:usize = acq.prn;
 			
-			acq.provide_sample(s).unwrap();
+			acq.provide_sample(&s).unwrap();
 			match acq.block_for_result() {
 				Ok(Some(result)) => {
 
 					let result_str = format!("{:9.2} [Hz], {:6} [chips], {:.8}, {:8.2} [radians]", result.doppler_hz, result.code_phase, result.test_statistic(), result.mf_response.arg());
-					let time:f64 = s.1 as f64 / fs;
+					let time:f64 = s.idx as f64 / fs;
 					if result.test_statistic() < 0.01 {
 						eprintln!("{:6.2} [sec], PRN {:02} {}", time, prn, result_str.yellow());
 					} else {

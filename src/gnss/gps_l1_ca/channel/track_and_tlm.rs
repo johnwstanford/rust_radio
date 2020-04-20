@@ -2,9 +2,7 @@
 extern crate rustfft;
 extern crate serde;
 
-use self::rustfft::num_complex::Complex;
-
-use ::DigSigProcErr;
+use ::{Sample, DigSigProcErr};
 use ::gnss::gps_l1_ca::{pvt, telemetry_decode, tracking};
 use ::gnss::gps_l1_ca::telemetry_decode::subframe::{self, Subframe as SF, SubframeBody as SFB};
 
@@ -14,8 +12,6 @@ pub const DEFAULT_CODE_A1:f64 = 0.7;
 pub const DEFAULT_CODE_A2:f64 = 0.7;
 
 pub const C_METERS_PER_SEC:f64 = 2.99792458e8;    // [m/s] speed of light
-
-type Sample = (Complex<f64>, usize);
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum ChannelState {
@@ -74,9 +70,9 @@ impl Channel {
 		self.last_acq_test_stat = test_statistic;		
 	}
 
-	pub fn apply(&mut self, s:Sample) -> ChannelResult { 
-		if s.1 <= self.last_sample_idx && s.1 > 0 { panic!("Somehow got the same sample twice or went backwards"); }
-		self.last_sample_idx = s.1;
+	pub fn apply(&mut self, s:&Sample) -> ChannelResult { 
+		if s.idx <= self.last_sample_idx && s.idx > 0 { panic!("Somehow got the same sample twice or went backwards"); }
+		self.last_sample_idx = s.idx;
 
 		match self.state {
 			ChannelState::AwaitingAcquisition => ChannelResult::NotReady("Waiting on acquisition"),

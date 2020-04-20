@@ -7,6 +7,8 @@ use std::sync::Arc;
 use self::rustfft::FFT;
 use self::rustfft::num_complex::Complex;
 
+use ::Sample;
+
 pub struct Acquisition {
 	pub fs:f64,
 	pub prn:usize,
@@ -27,10 +29,10 @@ pub struct Acquisition {
 
 impl super::Acquisition for Acquisition {
 
-	fn provide_sample(&mut self, sample:(Complex<f64>, usize)) -> Result<(), &str> {
-		if sample.1 > self.last_sample_idx {
-			self.buffer.push(sample.0);
-			self.last_sample_idx = sample.1;
+	fn provide_sample(&mut self, sample:&Sample) -> Result<(), &str> {
+		if sample.idx > self.last_sample_idx {
+			self.buffer.push(sample.val);
+			self.last_sample_idx = sample.idx;
 		}
 		Ok(())
 	}

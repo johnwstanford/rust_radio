@@ -1,7 +1,7 @@
 
 extern crate rustfft;
 
-use self::rustfft::num_complex::Complex;
+use ::Sample;
 
 pub struct Acquisition {
 	pub fs: f64,
@@ -28,7 +28,7 @@ impl Acquisition {
 
 impl super::Acquisition for Acquisition {
 
-	fn provide_sample(&mut self, sample:(Complex<f64>, usize)) -> Result<(), &str> { match self.state {
+	fn provide_sample(&mut self, sample:&Sample) -> Result<(), &str> { match self.state {
 		State::StageOne => self.stage_one.provide_sample(sample),
 		State::StageTwo{ current_freq_hz:_, current_step_hz:_, last_code_phase:_ } => self.stage_two.provide_sample(sample),
 	}}

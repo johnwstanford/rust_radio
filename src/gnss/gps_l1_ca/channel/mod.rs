@@ -4,9 +4,7 @@ pub mod track_and_tlm;
 extern crate rustfft;
 extern crate serde;
 
-use self::rustfft::num_complex::Complex;
-
-use ::DigSigProcErr;
+use ::{Sample, DigSigProcErr};
 use ::gnss::common::acquisition;
 use ::gnss::gps_l1_ca;
 use ::gnss::gps_l1_ca::{pvt, telemetry_decode::subframe::Subframe as SF};
@@ -16,8 +14,6 @@ pub const DEFAULT_DOPPLER_MAX_HZ:i16 = 10000;
 pub const DEFAULT_TEST_STAT_THRESHOLD:f64 = 0.008;
 
 pub type DefaultChannel = Channel<acquisition::two_stage_pcps::Acquisition>;
-
-type Sample = (Complex<f64>, usize);
 
 #[derive(Debug)]
 pub enum ChannelResult {
@@ -46,7 +42,7 @@ impl<A: acquisition::Acquisition> Channel<A> {
 	pub fn ephemeris(&self)  -> Option<pvt::ephemeris::Ephemeris> { self.trk_tlm.ephemeris() }
 	pub fn ionosphere(&self) -> Option<pvt::ionosphere::Model> { self.trk_tlm.ionosphere() }
 
-	pub fn apply(&mut self, s:Sample) -> ChannelResult { 
+	pub fn apply(&mut self, s:&Sample) -> ChannelResult { 
 		match self.state() {
 			track_and_tlm::ChannelState::AwaitingAcquisition => {
 				self.acq.provide_sample(s).unwrap();

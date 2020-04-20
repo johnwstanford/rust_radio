@@ -43,7 +43,7 @@ impl<A: acquisition::Acquisition> Channel<A> {
 	pub fn last_acq_doppler(&self) -> f64 { self.trk_tlm.last_acq_doppler() }
 	pub fn last_acq_test_stat(&self) -> f64 { self.trk_tlm.last_acq_test_stat() }
 	pub fn state(&self) -> track_and_tlm::ChannelState { self.trk_tlm.state() }
-	pub fn calendar_and_ephemeris(&self) -> Option<pvt::CalendarAndEphemeris> { self.trk_tlm.calendar_and_ephemeris() }
+	pub fn ephemeris(&self)  -> Option<pvt::ephemeris::Ephemeris> { self.trk_tlm.ephemeris() }
 	pub fn ionosphere(&self) -> Option<pvt::ionosphere::Model> { self.trk_tlm.ionosphere() }
 
 	pub fn apply(&mut self, s:Sample) -> ChannelResult { 

@@ -43,7 +43,7 @@ pub struct Channel {
 	last_sf1:Option<subframe::subframe1::Body>,
 	last_sf2:Option<subframe::subframe2::Body>,
 	last_sf3:Option<subframe::subframe3::Body>,
-	calendar_and_ephemeris:Option<pvt::CalendarAndEphemeris>,
+	ephemeris:Option<pvt::ephemeris::Ephemeris>,
 	ionosphere:Option<pvt::ionosphere::Model>,
 }
 
@@ -56,7 +56,7 @@ impl Channel {
 	pub fn last_acq_doppler(&self) -> f64 { self.last_acq_doppler }
 	pub fn last_acq_test_stat(&self) -> f64 { self.last_acq_test_stat }
 	pub fn state(&self) -> ChannelState { self.state }
-	pub fn calendar_and_ephemeris(&self) -> Option<pvt::CalendarAndEphemeris> { self.calendar_and_ephemeris }
+	pub fn ephemeris(&self)  -> Option<pvt::ephemeris::Ephemeris> { self.ephemeris }
 	pub fn ionosphere(&self) -> Option<pvt::ionosphere::Model> { self.ionosphere }
 
 	pub fn initialize(&mut self, acq_freq:f64, code_phase:usize) {
@@ -112,11 +112,11 @@ impl Channel {
 											(Some(subframe::subframe1::Body{week_number, code_on_l2:_, ura_index:_, sv_health:_, iodc, t_gd, t_oc, a_f2, a_f1, a_f0}), 
 											 Some(subframe::subframe2::Body{iode:iode2, crs, dn, m0, cuc, e, cus, sqrt_a, t_oe, fit_interval, aodo })) => {
 												if (iodc % 256) == (iode2 as u16) && iode2 == sf3.iode { 
-													let new_calendar_and_ephemeris = pvt::CalendarAndEphemeris { week_number, t_gd, fit_interval, aodo,
+													let new_ephemeris = pvt::ephemeris::Ephemeris { week_number, t_gd, fit_interval, aodo,
 														t_oc:(t_oc as f64), a_f0, a_f1, a_f2, t_oe, sqrt_a, dn, m0, e, omega: sf3.omega, omega0: sf3.omega0, 
 														omega_dot: sf3.omega_dot, cus, cuc, crs, crc: sf3.crc, cis: sf3.cis, cic: sf3.cic, i0: sf3.i0, 
 														idot: sf3.idot, iodc };
-													self.calendar_and_ephemeris = Some(new_calendar_and_ephemeris);
+													self.ephemeris = Some(new_ephemeris);
 												}
 											},
 											(_, _) => {}
@@ -157,16 +157,16 @@ impl Channel {
 	}
 
 	pub fn get_observation(&self, rx_tow_sec:f64) -> Option<pvt::Observation> {
-		if let Some(cae) = self.calendar_and_ephemeris {
+		if let Some(eph) = self.ephemeris {
 			// TODO: make other time corrections (ionosphere, etc) 
 			// TODO: account for GPS week rollover possibility
 			// TODO: check for ephemeris validity time
 			// TODO: consider returning a Result where the Err describes the reason for not producing a position
 			let sv_tow_sec:f64 = self.trk.sv_time_of_week();
-			let (pos_ecef, sv_clock) = cae.pos_and_clock(sv_tow_sec);
+			let (pos_ecef, sv_clock) = eph.pos_and_clock(sv_tow_sec);
 			let carrier_freq_hz:f64 = self.trk.carrier_freq_hz();
-			let pseudorange_m:f64 = (rx_tow_sec - sv_tow_sec + sv_clock - cae.t_gd) * C_METERS_PER_SEC;
-			Some(pvt::Observation{ sv_tow_sec, pseudorange_m, pos_ecef, sv_clock, t_gd: cae.t_gd, carrier_freq_hz })
+			let pseudorange_m:f64 = (rx_tow_sec - sv_tow_sec + sv_clock - eph.t_gd) * C_METERS_PER_SEC;
+			Some(pvt::Observation{ sv_tow_sec, pseudorange_m, pos_ecef, sv_clock, t_gd: eph.t_gd, carrier_freq_hz })
 		} else { None }
 	}
 
@@ -180,6 +180,5 @@ pub fn new_channel(prn:usize, fs:f64, a1_carr:f64, a2_carr:f64, a1_code:f64, a2_
 	let tlm = telemetry_decode::TelemetryDecoder::new();
 
 	Channel{ prn, fs, state, trk, tlm, last_acq_doppler:0.0, last_acq_test_stat: 0.0, last_sample_idx: 0, 
-		calendar_and_ephemeris: None, ionosphere: None,
-		last_sf1: None, last_sf2: None, last_sf3: None }
+		ephemeris: None, ionosphere: None, last_sf1: None, last_sf2: None, last_sf3: None }
 }

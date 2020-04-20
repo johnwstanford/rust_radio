@@ -46,7 +46,7 @@ fn main() {
 	let json_filename:&str = matches.value_of("json_file").unwrap();
 
 	//                               PRN            week	     iodc
-	let mut ephemerides_data:HashMap<usize, HashMap<u16, HashMap<u16, pvt::CalendarAndEphemeris>>> = match File::open(json_filename) {
+	let mut ephemerides_data:HashMap<usize, HashMap<u16, HashMap<u16, pvt::ephemeris::Ephemeris>>> = match File::open(json_filename) {
 		Ok(json_file) => serde_json::from_reader(BufReader::new(json_file)).unwrap(),
 		Err(_) => HashMap::new()
 	};
@@ -72,14 +72,14 @@ fn main() {
 					}
 
 					// Add new calendar and ephemeris data if available
-					match chn.calendar_and_ephemeris() {
-						Some(cae) => {
-							let this_prn:&mut HashMap<u16, HashMap<u16, pvt::CalendarAndEphemeris>> = ephemerides_data.entry(chn.prn).or_insert(HashMap::new());
-							let this_week:&mut HashMap<u16, pvt::CalendarAndEphemeris> = this_prn.entry(cae.week_number).or_insert(HashMap::new());
-							match this_week.insert(cae.iodc, cae) {
+					match chn.ephemeris() {
+						Some(eph) => {
+							let this_prn:&mut HashMap<u16, HashMap<u16, pvt::ephemeris::Ephemeris>> = ephemerides_data.entry(chn.prn).or_insert(HashMap::new());
+							let this_week:&mut HashMap<u16, pvt::ephemeris::Ephemeris> = this_prn.entry(eph.week_number).or_insert(HashMap::new());
+							match this_week.insert(eph.iodc, eph) {
 								Some(_) => {},
 								None => { 
-									eprintln!("New ephemeris for PRN {}: {:?}", chn.prn, &cae);
+									eprintln!("New ephemeris for PRN {}: {:?}", chn.prn, &eph);
 								}
 							}
 						},
@@ -130,7 +130,7 @@ fn main() {
 						match this_prn.get(&week) {
 							Some(this_week) => {
 								// TODO: account for GPS week roll-over
-								let ephs_within_two_hours:Vec<pvt::CalendarAndEphemeris> = this_week.values()
+								let ephs_within_two_hours:Vec<pvt::ephemeris::Ephemeris> = this_week.values()
 									.filter(|cae| ((cae.t_oe * 1000.0) - tow_ms).abs() <= 7200000.0 ).map(|cae| *cae).collect();
 								if ephs_within_two_hours.len() > 0 {
 									for cae in ephs_within_two_hours {

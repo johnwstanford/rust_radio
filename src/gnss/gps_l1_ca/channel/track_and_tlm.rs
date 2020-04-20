@@ -158,7 +158,6 @@ impl Channel {
 
 	pub fn get_observation(&self, rx_tow_sec:f64) -> Option<pvt::Observation> {
 		if let Some(eph) = self.ephemeris {
-			// TODO: make other time corrections (ionosphere, etc) 
 			// TODO: account for GPS week rollover possibility
 			// TODO: check for ephemeris validity time
 			// TODO: consider returning a Result where the Err describes the reason for not producing a position

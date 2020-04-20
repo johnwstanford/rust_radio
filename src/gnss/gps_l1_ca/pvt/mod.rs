@@ -15,6 +15,16 @@ const SV_COUNT_THRESHOLD:usize = 5;
 pub mod ephemeris;
 pub mod ionosphere;
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct GnssFix {
+	pub pos_ecef:(f64, f64, f64),
+	pub residual_norm:f64,
+	pub residuals: Vec<f64>,
+	pub sv_count:usize,
+	pub current_rx_time: f64,
+	pub obs_this_soln:Vec<Observation>,
+}
+
 #[derive(Debug, Serialize, Deserialize, Copy, Clone)]
 pub struct Observation {
 	pub sv_tow_sec: f64,
@@ -55,25 +65,14 @@ impl Observation {
 
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct GnssFix {
-	pub pos_ecef:(f64, f64, f64),
-	pub residual_norm:f64,
-	pub residuals: Vec<f64>,
-	pub iono_delay: Vec<f64>,
-	pub az_el: Vec<(f64, f64)>,
-	pub sv_count:usize,
-	pub current_rx_time: f64,
-	pub obs_this_soln:Vec<Observation>,
-}
-
 pub fn solve_position_and_time(obs_this_soln:Vec<Observation>, x0:Vector4<f64>, current_rx_time:f64, opt_iono:Option<ionosphere::Model>) -> Result<(GnssFix, Vector4<f64>), &'static str> {
+	// TODO: make other time corrections (ionosphere, etc) 
+
 	if obs_this_soln.len() >= SV_COUNT_THRESHOLD {
 		let n = obs_this_soln.len();
 
 		let mut x = x0.clone();
 		let mut v = DVector::from_element(n, 0.0);
-		let mut iono_delay = vec![0.0; n];
 
 		// Try to solve for position
 		for _ in 0..MAX_ITER {
@@ -86,10 +85,6 @@ pub fn solve_position_and_time(obs_this_soln:Vec<Observation>, x0:Vector4<f64>, 
 				let p_r_e = p_sv_e - p_ob_e;
 				let p_r_mag:f64 = p_r_e.norm();
 				let p_r_e_norm  = p_r_e / p_r_mag;
-
-				if let Some(iono) = opt_iono {
-					iono_delay[i] = iono.delay((x[0], x[1], x[2]), (ob.pos_ecef.0, ob.pos_ecef.1, ob.pos_ecef.2), current_rx_time);
-				}
 
 				v[i] = ob.pseudorange_m - p_r_mag - x[3];
 				for j in 0..3 { h[(i,j)] = -p_r_e_norm[j]; }
@@ -108,10 +103,8 @@ pub fn solve_position_and_time(obs_this_soln:Vec<Observation>, x0:Vector4<f64>, 
 					if x.iter().chain(v.iter()).all(|a| a.is_finite()) {
 						// Return the fix regardless of the residual norm and let the calling scope determine whether it's good enough
 						let residuals:Vec<f64> = v.iter().map(|x| *x).collect();
-						let az_el:Vec<(f64, f64)> = obs_this_soln.iter().map(|obs| obs.az_el_from((x[0], x[1], x[2]))).collect();
 						let fix = GnssFix{pos_ecef:(x[0], x[1], x[2]), 
 							residual_norm:v.norm(), residuals, 
-							iono_delay, az_el,
 							sv_count:n, current_rx_time, obs_this_soln };
 						return Ok((fix, x))
 					}

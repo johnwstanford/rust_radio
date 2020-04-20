@@ -19,10 +19,8 @@ pub mod ionosphere;
 pub struct GnssFix {
 	pub pos_ecef:(f64, f64, f64),
 	pub residual_norm:f64,
-	pub residuals: Vec<f64>,
-	pub sv_count:usize,
 	pub current_rx_time: f64,
-	pub obs_this_soln:Vec<Observation>,
+	pub observations:Vec<(Observation, CompletedObservation)>,
 }
 
 // This struct is populated by the tracking and telemetry decoding modules and only depends on SV state
@@ -114,10 +112,8 @@ pub fn solve_position_and_time(obs_this_soln:Vec<Observation>, x0:Vector4<f64>, 
 					// The iterative least squares method has converged
 					if x.iter().chain(v.iter()).all(|a| a.is_finite()) {
 						// Return the fix regardless of the residual norm and let the calling scope determine whether it's good enough
-						let residuals:Vec<f64> = v.iter().map(|x| *x).collect();
-						let fix = GnssFix{pos_ecef:(x[0], x[1], x[2]), 
-							residual_norm:v.norm(), residuals, 
-							sv_count:n, current_rx_time, obs_this_soln };
+						let observations:Vec<(Observation, CompletedObservation)> = obs_this_soln.iter().map(|obs| (*obs, obs.complete(x))).collect();
+						let fix = GnssFix{pos_ecef:(x[0], x[1], x[2]), residual_norm:v.norm(), current_rx_time, observations };
 						return Ok((fix, x))
 					}
 

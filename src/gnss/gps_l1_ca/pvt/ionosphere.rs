@@ -3,10 +3,6 @@ extern crate nalgebra as na;
 
 use std::f64::consts;
 
-use self::na::base::{Matrix3, Matrix3x1, U3, U1};
-
-use ::utils::kinematics;
-
 #[derive(Debug, Clone, Copy)]
 pub struct Model {
 	pub alpha0:f64, pub alpha1:f64, pub alpha2:f64, pub alpha3:f64, 
@@ -15,38 +11,12 @@ pub struct Model {
 
 impl Model {
 	
-	pub fn delay(&self, obs_ecef:(f64, f64, f64), sv_ecef:(f64, f64, f64), t:f64) -> f64 {
+	pub fn delay(&self, az_radians:f64, el_radians:f64, latitude_radians:f64, longitude_radians:f64, t:f64) -> f64 {
 
-		let po_e = Matrix3x1::from_row_slice_generic(U3, U1, &[obs_ecef.0, obs_ecef.1, obs_ecef.2]);
-		let ps_e = Matrix3x1::from_row_slice_generic(U3, U1, &[sv_ecef.0,  sv_ecef.1,  sv_ecef.2 ]);
-
-		// Vector from the observer to the SV in the ECEF frame
-		let r_e = ps_e - po_e;
-
-		let obs_wgs84 = kinematics::ecef_to_wgs84(obs_ecef.0, obs_ecef.1, obs_ecef.2);
-		let dcm_le = match obs_wgs84 {
-			kinematics::PositionWGS84 { latitude:phi, longitude:lam, height_above_ellipsoid:_ } => {
-				Matrix3::new(-phi.sin()*lam.cos(), -phi.sin()*lam.sin(),  phi.cos(),
-					         -lam.sin(),            lam.cos(),            0.0,
-					         -phi.cos()*lam.cos(), -phi.cos()*lam.cos(), -phi.sin())
-			}
-		};
-
-		// Vector from the observer to the SV in the local-level frame
-		let r_l = dcm_le * r_e;
-
-		let r_horizontal:f64 = (r_l[(0,0)].powi(2) + r_l[(1,0)].powi(2)).sqrt();
-		let az_radians:f64 = r_l[(1,0)].atan2(r_l[(0,0)]);
-		let el_radians:f64 = r_l[(2,0)].atan2(r_horizontal);
-
-		// Algorithm from IS-GPS-200H, Figure 20-4
-		// Note: the GPS ICD has some units in semicircles and some in radians, but everything passed into trig functions needs to be in radians
-		// TODO: this is one of the worst cases of missing units and magic numbers I've ever seen; figure out what everything is and document it
-		// let az_semicircles:f64 = az_radians / consts::PI;
 		let el_semicircles:f64 = el_radians / consts::PI;
 
-		let mut phi_u:f64 = obs_wgs84.latitude  / consts::PI;
-		let mut lam_u:f64 = obs_wgs84.longitude / consts::PI;
+		let mut phi_u:f64 = latitude_radians  / consts::PI;
+		let mut lam_u:f64 = longitude_radians / consts::PI;
 		if phi_u > 0.5 {
 			phi_u = 1.0 - phi_u;
 			lam_u -= 1.0;

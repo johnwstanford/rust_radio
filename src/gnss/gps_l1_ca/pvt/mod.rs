@@ -42,11 +42,12 @@ pub struct CompletedObservation {
 	p_r_e_norm: Vec<f64>,
 	az_radians: f64,
 	el_radians: f64,
+	iono_delay: f64,
 }
 
 impl Observation {
 	
-	pub fn complete(&self, x:Vector4<f64>) -> CompletedObservation {
+	pub fn complete(&self, x:Vector4<f64>, opt_iono:Option<ionosphere::Model>) -> CompletedObservation {
 		let p_ob_e = Vector3::new(x[0], x[1], x[2]);
 		let p_sv_e = Vector3::new(self.pos_ecef.0, self.pos_ecef.1, self.pos_ecef.2);
 		
@@ -72,9 +73,15 @@ impl Observation {
 		let az_radians:f64 = p_r_n[(1,0)].atan2(p_r_n[(0,0)]);
 		let el_radians:f64 = (-p_r_n[(2,0)]).atan2(r_horizontal);
 
+		// Compute ionospheric delay; recorded for testing, but not applied to the pseudorange yet
+		let iono_delay:f64 = match opt_iono {
+			Some(iono) => iono.delay(az_radians, el_radians, obs_wgs84.latitude, obs_wgs84.longitude, self.sv_tow_sec),
+			None => 0.0
+		};
+
 		let residual = self.pseudorange_m - p_r_mag - x[3];
 		let p_r_e_norm_vec:Vec<f64> = (0..3).map(|j| p_r_e_norm[j] ).collect();
-		CompletedObservation{ residual, p_r_mag, p_r_e_norm: p_r_e_norm_vec, az_radians, el_radians }
+		CompletedObservation{ residual, p_r_mag, p_r_e_norm: p_r_e_norm_vec, az_radians, el_radians, iono_delay }
 	}
 
 }
@@ -93,7 +100,7 @@ pub fn solve_position_and_time(obs_this_soln:Vec<Observation>, x0:Vector4<f64>, 
 
 			let mut h = DMatrix::from_element(n, 4, 0.0);
 
-			for (i, ob) in obs_this_soln.iter().map(|obs| obs.complete(x)).enumerate() {
+			for (i, ob) in obs_this_soln.iter().map(|obs| obs.complete(x, opt_iono)).enumerate() {
 
 				v[i] = ob.residual;
 				for j in 0..3 { h[(i,j)] = -ob.p_r_e_norm[j]; }
@@ -112,7 +119,7 @@ pub fn solve_position_and_time(obs_this_soln:Vec<Observation>, x0:Vector4<f64>, 
 					// The iterative least squares method has converged
 					if x.iter().chain(v.iter()).all(|a| a.is_finite()) {
 						// Return the fix regardless of the residual norm and let the calling scope determine whether it's good enough
-						let observations:Vec<(Observation, CompletedObservation)> = obs_this_soln.iter().map(|obs| (*obs, obs.complete(x))).collect();
+						let observations:Vec<(Observation, CompletedObservation)> = obs_this_soln.iter().map(|obs| (*obs, obs.complete(x, opt_iono))).collect();
 						let fix = GnssFix{pos_ecef:(x[0], x[1], x[2]), residual_norm:v.norm(), current_rx_time, observations };
 						return Ok((fix, x))
 					}

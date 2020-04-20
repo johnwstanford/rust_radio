@@ -78,7 +78,7 @@ fn main() {
 	let mut all_fixes:Vec<pvt::GnssFix> = vec![];
 
 	let mut x_master = Vector4::new(0.0, 0.0, 0.0, 0.0);
-	let mut ionosphere:Option<pvt::IonosphericModel> = None;
+	let mut ionosphere:Option<pvt::ionosphere::Model> = None;
 
 	for s in io::file_source_i16_complex(&fname).map(|(x, idx)| (Complex{ re: x.0 as f64, im: x.1 as f64 }, idx)) {
 

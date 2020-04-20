@@ -44,7 +44,7 @@ pub struct Channel {
 	last_sf2:Option<subframe::subframe2::Body>,
 	last_sf3:Option<subframe::subframe3::Body>,
 	calendar_and_ephemeris:Option<pvt::CalendarAndEphemeris>,
-	ionosphere:Option<pvt::IonosphericModel>,
+	ionosphere:Option<pvt::ionosphere::Model>,
 }
 
 impl Channel {
@@ -57,7 +57,7 @@ impl Channel {
 	pub fn last_acq_test_stat(&self) -> f64 { self.last_acq_test_stat }
 	pub fn state(&self) -> ChannelState { self.state }
 	pub fn calendar_and_ephemeris(&self) -> Option<pvt::CalendarAndEphemeris> { self.calendar_and_ephemeris }
-	pub fn ionosphere(&self) -> Option<pvt::IonosphericModel> { self.ionosphere }
+	pub fn ionosphere(&self) -> Option<pvt::ionosphere::Model> { self.ionosphere }
 
 	pub fn initialize(&mut self, acq_freq:f64, code_phase:usize) {
 		self.state = match code_phase {
@@ -126,7 +126,7 @@ impl Channel {
 										match sf4.page {
 											subframe::subframe4::Page::Page18{ alpha0, alpha1, alpha2, alpha3, beta0, beta1, beta2, beta3, .. } => {
 												new_ionosphere = true;
-												self.ionosphere = Some(pvt::IonosphericModel{alpha0, alpha1, alpha2, alpha3, beta0, beta1, beta2, beta3})
+												self.ionosphere = Some(pvt::ionosphere::Model{alpha0, alpha1, alpha2, alpha3, beta0, beta1, beta2, beta3})
 											},
 											_ => { /* No special action for pages other than 18 right now */}
 										}

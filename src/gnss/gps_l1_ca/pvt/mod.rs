@@ -3,7 +3,7 @@ extern crate nalgebra as na;
 extern crate serde;
 
 use self::serde::{Serialize, Deserialize};
-use self::na::base::{Matrix3, Matrix3x1, DMatrix, Vector3, Vector4, DVector, U3, U1};
+use self::na::base::{Matrix3, DMatrix, Vector3, Vector4, DVector};
 
 use ::utils::kinematics;
 
@@ -42,6 +42,8 @@ pub struct CompletedObservation {
 	residual: f64,
 	p_r_mag: f64,
 	p_r_e_norm: Vec<f64>,
+	az_radians: f64,
+	el_radians: f64,
 }
 
 impl Observation {
@@ -55,35 +57,26 @@ impl Observation {
 		let p_r_mag:f64 = p_r_e.norm();
 		let p_r_e_norm  = p_r_e / p_r_mag;
 
-		let residual = self.pseudorange_m - p_r_mag - x[3];
-		let p_r_e_norm_vec:Vec<f64> = (0..3).map(|j| p_r_e_norm[j] ).collect();
-		CompletedObservation{ residual, p_r_mag, p_r_e_norm: p_r_e_norm_vec }
-	}
-
-	pub fn az_el_from(&self, obs_ecef:(f64, f64, f64)) -> (f64, f64) {
-		let po_e = Matrix3x1::from_row_slice_generic(U3, U1, &[obs_ecef.0, obs_ecef.1, obs_ecef.2]);
-		let ps_e = Matrix3x1::from_row_slice_generic(U3, U1, &[self.pos_ecef.0,  self.pos_ecef.1,  self.pos_ecef.2 ]);
-
-		// Vector from the observer to the SV in the ECEF frame
-		let r_e = ps_e - po_e;
-
-		let obs_wgs84 = kinematics::ecef_to_wgs84(obs_ecef.0, obs_ecef.1, obs_ecef.2);
-		let dcm_le = match obs_wgs84 {
+		// Transformation from ECEF to NED
+		let obs_wgs84 = kinematics::ecef_to_wgs84(x[0], x[1], x[2]);
+		let dcm_ne = match obs_wgs84 {
 			kinematics::PositionWGS84 { latitude:phi, longitude:lam, height_above_ellipsoid:_ } => {
 				Matrix3::new(-phi.sin()*lam.cos(), -phi.sin()*lam.sin(),  phi.cos(),
 					         -lam.sin(),            lam.cos(),            0.0,
-					         -phi.cos()*lam.cos(), -phi.cos()*lam.cos(), -phi.sin())
+					         -phi.cos()*lam.cos(), -phi.cos()*lam.sin(), -phi.sin())
 			}
 		};
 
-		// Vector from the observer to the SV in the local-level frame
-		let r_l = dcm_le * r_e;
+		// Vector from the observer to the SV in the NED frame
+		let p_r_n = dcm_ne * p_r_e;
 
-		let r_horizontal:f64 = (r_l[(0,0)].powi(2) + r_l[(1,0)].powi(2)).sqrt();
-		let az_radians:f64 = r_l[(1,0)].atan2(r_l[(0,0)]);
-		let el_radians:f64 = r_l[(2,0)].atan2(r_horizontal);
+		let r_horizontal:f64 = (p_r_n[(0,0)].powi(2) + p_r_n[(1,0)].powi(2)).sqrt();
+		let az_radians:f64 = p_r_n[(1,0)].atan2(p_r_n[(0,0)]);
+		let el_radians:f64 = (-p_r_n[(2,0)]).atan2(r_horizontal);
 
-		(az_radians, el_radians)
+		let residual = self.pseudorange_m - p_r_mag - x[3];
+		let p_r_e_norm_vec:Vec<f64> = (0..3).map(|j| p_r_e_norm[j] ).collect();
+		CompletedObservation{ residual, p_r_mag, p_r_e_norm: p_r_e_norm_vec, az_radians, el_radians }
 	}
 
 }

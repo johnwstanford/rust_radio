@@ -1,13 +1,10 @@
 
 pub mod track_and_tlm;
 
-extern crate rustfft;
-extern crate serde;
-
-use ::{Sample, DigSigProcErr};
-use ::gnss::common::acquisition;
-use ::gnss::gps_l1_ca;
-use ::gnss::gps_l1_ca::{pvt, telemetry_decode::subframe::Subframe as SF};
+use crate::{Sample, DigSigProcErr};
+use crate::gnss::common::acquisition;
+use crate::gnss::gps_l1_ca;
+use crate::gnss::gps_l1_ca::{pvt, telemetry_decode::subframe::Subframe as SF};
 
 pub const DEFAULT_DOPPLER_STEP_HZ:usize = 50;
 pub const DEFAULT_DOPPLER_MAX_HZ:i16 = 10000;

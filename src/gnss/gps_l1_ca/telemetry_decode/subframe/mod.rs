@@ -1,10 +1,8 @@
 
-extern crate byteorder;
-extern crate serde;
+use ::serde::{Serialize, Deserialize};
 
-use self::serde::{Serialize, Deserialize};
-use ::DigSigProcErr;
-use ::utils;
+use crate::DigSigProcErr;
+use crate::utils;
 
 pub mod subframe1;
 pub mod subframe2;

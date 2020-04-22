@@ -1,6 +1,7 @@
 
 use std::collections::VecDeque;
-use ::DigSigProcErr;
+
+use crate::DigSigProcErr;
 
 const POS_PATTERN:[bool; 8] = [true,  false, false, false, true,  false, true,  true ];
 const NEG_PATTERN:[bool; 8] = [false, true,  true,  true,  false, true,  false, false];

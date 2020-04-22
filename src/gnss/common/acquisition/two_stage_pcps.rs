@@ -1,7 +1,5 @@
 
-extern crate rustfft;
-
-use ::Sample;
+use crate::Sample;
 
 pub struct Acquisition {
 	pub fs: f64,

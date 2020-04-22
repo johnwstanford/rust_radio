@@ -1,13 +1,11 @@
 
-extern crate rustfft;
-
 use std::f64::consts;
 use std::sync::Arc;
 
-use self::rustfft::FFT;
-use self::rustfft::num_complex::Complex;
+use rustfft::FFT;
+use rustfft::num_complex::Complex;
 
-use ::Sample;
+use crate::Sample;
 
 pub struct Acquisition {
 	pub fs:f64,

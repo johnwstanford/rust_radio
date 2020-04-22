@@ -1,10 +1,8 @@
 
-extern crate serde;
+use ::serde::{Serialize, Deserialize};
 
-use self::serde::{Serialize, Deserialize};
-
-use ::DigSigProcErr;
-use ::utils;
+use crate::DigSigProcErr;
+use crate::utils;
 
 // TODO: think about whether Copy and Clone are really necessary
 #[derive(Debug, Serialize, Deserialize, Copy, Clone)]

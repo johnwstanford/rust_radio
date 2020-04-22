@@ -1,8 +1,6 @@
 
-extern crate num_complex;
-
-use self::num_complex::Complex;
-use ::types::even_odd_slice::{self, EvenOddSlice};
+use ::num_complex::Complex;
+use crate::types::even_odd_slice::{self, EvenOddSlice};
 
 pub fn fft(x: &Vec<Complex<f64>>) -> Vec<Complex<f64>> { fft_k(even_odd_slice::new(&x), -1.0) }
 pub fn ifft(x: &Vec<Complex<f64>>) -> Vec<Complex<f64>> { fft_k(even_odd_slice::new(&x), 1.0).iter().map(|c| c / (x.len() as f64)).collect() }

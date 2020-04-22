@@ -1,14 +1,11 @@
 
-extern crate rustfft;
-extern crate serde;
-
 use std::f64::consts;
 
-use self::rustfft::num_complex::Complex;
+use ::rustfft::num_complex::Complex;
 
-use ::{filters, Sample, DigSigProcErr};
-use ::gnss::gps_l1_ca;
-use ::utils::IntegerClock;
+use crate::{filters, Sample, DigSigProcErr};
+use crate::gnss::gps_l1_ca;
+use crate::utils::IntegerClock;
 
 // Design SNR is 0.035 (-14.56 [dB])
 // H0 short test_stat follows an exponential distribution w loc=1.38e-09, scale=5.00e-04
@@ -68,7 +65,7 @@ pub enum TrackingResult {
 }
 
 #[cfg(debug_assertions)]
-#[derive(Debug, self::serde::Serialize, self::serde::Deserialize)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct TrackingDebug {
 	pub carrier_re:f64,
 	pub carrier_im:f64,

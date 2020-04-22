@@ -1,11 +1,8 @@
 
-extern crate nalgebra as na;
-extern crate serde;
+use serde::{Serialize, Deserialize};
+use nalgebra::base::{Matrix3, DMatrix, Vector3, Vector4, DVector};
 
-use self::serde::{Serialize, Deserialize};
-use self::na::base::{Matrix3, DMatrix, Vector3, Vector4, DVector};
-
-use ::utils::kinematics;
+use crate::utils::kinematics;
 
 pub const C:f64 = 2.99792458e8;					 // [m/s] speed of light
 

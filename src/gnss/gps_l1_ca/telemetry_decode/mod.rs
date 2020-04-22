@@ -1,10 +1,9 @@
 
 #![allow(non_snake_case)]
 
-extern crate num_complex;
-
 use std::collections::VecDeque;
-use ::DigSigProcErr;
+
+use crate::DigSigProcErr;
 
 /*	GPS Telemetry Decoding Pipeline:
 	- Preamble detector

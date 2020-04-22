@@ -1,10 +1,7 @@
 
-extern crate rustfft;
-extern crate serde;
-
-use ::{Sample, DigSigProcErr};
-use ::gnss::gps_l1_ca::{pvt, telemetry_decode, tracking};
-use ::gnss::gps_l1_ca::telemetry_decode::subframe::{self, Subframe as SF, SubframeBody as SFB};
+use crate::{Sample, DigSigProcErr};
+use crate::gnss::gps_l1_ca::{pvt, telemetry_decode, tracking};
+use crate::gnss::gps_l1_ca::telemetry_decode::subframe::{self, Subframe as SF, SubframeBody as SFB};
 
 pub const DEFAULT_CARRIER_A1:f64 = 0.9;
 pub const DEFAULT_CARRIER_A2:f64 = 0.9;

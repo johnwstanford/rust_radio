@@ -1,11 +1,9 @@
 
-extern crate rustfft;
+use rustfft::FFTplanner;
+use rustfft::num_complex::Complex;
+use rustfft::num_traits::Zero;
 
-use self::rustfft::FFTplanner;
-use self::rustfft::num_complex::Complex;
-use self::rustfft::num_traits::Zero;
-
-use ::Sample;
+use crate::Sample;
 
 pub mod basic_pcps;
 pub mod fast_pcps;

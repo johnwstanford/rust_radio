@@ -9,7 +9,7 @@ byteorder = "1.2.6"
 clap = "2.33.0"
 colored = "1.8.0"
 dirs = "2.0.1"
-futures = "0.1.29"
+futures = { version = "0.3.0", features = ["thread-pool"] }
 itertools = "0.8.0"
 nalgebra = "0.18.0"
 num-complex = "0.2.3"

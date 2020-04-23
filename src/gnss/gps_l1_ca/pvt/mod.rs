@@ -23,6 +23,7 @@ pub struct GnssFix {
 // This struct is populated by the tracking and telemetry decoding modules and only depends on SV state
 #[derive(Debug, Serialize, Deserialize, Copy, Clone)]
 pub struct Observation {
+	pub sv_id: usize,
 	pub sv_tow_sec: f64,
 	pub pseudorange_m: f64,
 	pub pos_ecef: (f64, f64, f64),

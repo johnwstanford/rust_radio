@@ -150,16 +150,18 @@ impl Channel {
 	}
 
 	pub fn get_observation(&self, rx_tow_sec:f64) -> Option<pvt::Observation> {
-		if let Some(eph) = self.ephemeris {
-			// TODO: account for GPS week rollover possibility
-			// TODO: check for ephemeris validity time
-			// TODO: consider returning a Result where the Err describes the reason for not producing a position
-			let sv_tow_sec:f64 = self.trk.sv_time_of_week();
-			let (pos_ecef, sv_clock) = eph.pos_and_clock(sv_tow_sec);
-			let carrier_freq_hz:f64 = self.trk.carrier_freq_hz();
-			let pseudorange_m:f64 = (rx_tow_sec - sv_tow_sec + sv_clock - eph.t_gd) * C_METERS_PER_SEC;
-			Some(pvt::Observation{ sv_id: self.prn, sv_tow_sec, pseudorange_m, pos_ecef, sv_clock, t_gd: eph.t_gd, carrier_freq_hz })
-		} else { None }
+		if self.state != ChannelState::Tracking { None } else {
+			if let Some(eph) = self.ephemeris {
+				// TODO: account for GPS week rollover possibility
+				// TODO: check for ephemeris validity time
+				// TODO: consider returning a Result where the Err describes the reason for not producing a position
+				let sv_tow_sec:f64 = self.trk.sv_time_of_week();
+				let (pos_ecef, sv_clock) = eph.pos_and_clock(sv_tow_sec);
+				let carrier_freq_hz:f64 = self.trk.carrier_freq_hz();
+				let pseudorange_m:f64 = (rx_tow_sec - sv_tow_sec + sv_clock - eph.t_gd) * C_METERS_PER_SEC;
+				Some(pvt::Observation{ sv_id: self.prn, sv_tow_sec, pseudorange_m, pos_ecef, sv_clock, t_gd: eph.t_gd, carrier_freq_hz })
+			} else { None }
+		}
 	}
 
 }

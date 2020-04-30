@@ -40,7 +40,7 @@ pub struct Tracking {
 	code_phase: f64,
 	code_dphase: f64,
 
-	carrier_filter: filters::SecondOrderFIR,
+	carrier_filter: filters::ThirdOrderFIR,
 	code_filter: filters::SecondOrderFIR,
 
 	// Used during summation over the short interval
@@ -271,7 +271,8 @@ pub fn new_default_tracker(prn:usize, acq_freq_hz:f64, fs:f64, a1_carr:f64, a2_c
 		#[cfg(debug_assertions)]
 		eprintln!("Tracker carrier filter coeffs: {:.1}/fs, {:.1}/fs", a1, a0);
 
-		filters::new_second_order_fir(a1/fs, a0/fs)
+		// TODO: calculate these coefficients; this is just for testing
+		filters::ThirdOrderFIR::new(62.5/fs, -500.0/fs, 500.0/fs)
 	};
 
 	let code_filter = {

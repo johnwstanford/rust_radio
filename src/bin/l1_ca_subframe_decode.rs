@@ -30,23 +30,23 @@ struct SubframeWithMetadata {
 	prn:usize,
 }
 
-fn parse_comma_sep_floats(opt:Option<&str>, default_a1:f64, default_a2:f64) -> (f64, f64) {
-	match opt {
-		Some(s) => {
-			let coeffs_str:Vec<&str> = s.split(",").collect();
-			match (coeffs_str.get(0), coeffs_str.get(1)) {
-				(Some(a1_str), Some(a2_str)) => {
-					match (a1_str.parse::<f64>(), a2_str.parse::<f64>()) {
-						(Ok(a1), Ok(a2)) => (        a1,         a2),
-						(_, _)           => (default_a1, default_a2),
-					}
-				},
-				(_, _) => (default_a1, default_a2),
-			}
-		},
-		None => (default_a1, default_a2)
-	}
-}
+// fn parse_comma_sep_floats(opt:Option<&str>, default_a1:f64, default_a2:f64) -> (f64, f64) {
+// 	match opt {
+// 		Some(s) => {
+// 			let coeffs_str:Vec<&str> = s.split(",").collect();
+// 			match (coeffs_str.get(0), coeffs_str.get(1)) {
+// 				(Some(a1_str), Some(a2_str)) => {
+// 					match (a1_str.parse::<f64>(), a2_str.parse::<f64>()) {
+// 						(Ok(a1), Ok(a2)) => (        a1,         a2),
+// 						(_, _)           => (default_a1, default_a2),
+// 					}
+// 				},
+// 				(_, _) => (default_a1, default_a2),
+// 			}
+// 		},
+// 		None => (default_a1, default_a2)
+// 	}
+// }
 
 fn main() {
 
@@ -65,27 +65,19 @@ fn main() {
 		.arg(Arg::with_name("sample_rate_sps")
 			.short("s").long("sample_rate_sps")
 			.takes_value(true).required(true))
-		.arg(Arg::with_name("carr_trk").long("carr_trk").takes_value(true)
-			.help("Two unitless, comma-separated carrier tracking coefficients recommended to be in the 0.6-1.0 range, default '0.9,0.9'"))
-		.arg(Arg::with_name("code_trk").long("code_trk").takes_value(true)
-			.help("Two unitless, comma-separated code tracking coefficients recommended to be in the 0.6-1.0 range, default '0.7,0.7'"))
 		.get_matches();
 
 	let fname:&str = matches.value_of("filename").unwrap();
 	let fs = matches.value_of("sample_rate_sps").unwrap().parse().unwrap();
-	let carr_coeffs:(f64, f64) = parse_comma_sep_floats(matches.value_of("carr_trk"), 0.9, 0.9);
-	let code_coeffs:(f64, f64) = parse_comma_sep_floats(matches.value_of("code_trk"), 0.7, 0.7);
 
 	#[cfg(debug_assertions)]
 	{
 		eprintln!("Compiled with DEV profile");
 	}
 
-	eprintln!("Decoding {} at {} [samples/sec]; tracker configured with ({}, {}, {}, {})", 
-		&fname, &fs, carr_coeffs.0, carr_coeffs.1, code_coeffs.0, code_coeffs.1);
+	eprintln!("Decoding {} at {} [samples/sec]", &fname, &fs);
 
-	let mut inactive_channels:VecDeque<channel::DefaultChannel> = (1..=32).map(|prn| channel::new_channel(prn, fs, 0.008, 
-		carr_coeffs.0, carr_coeffs.1, code_coeffs.0, code_coeffs.1)).collect();
+	let mut inactive_channels:VecDeque<channel::DefaultChannel> = (1..=32).map(|prn| channel::new_channel(prn, fs, 0.008)).collect();
 	let mut active_channels:VecDeque<channel::DefaultChannel>   = inactive_channels.drain(..NUM_ACTIVE_CHANNELS).collect();
 
 	let mut all_results:Vec<SubframeWithMetadata> = Vec::new();

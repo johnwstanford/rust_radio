@@ -1,13 +1,8 @@
 
 use crate::{Sample, DigSigProcErr};
-use crate::filters::{SecondOrderFIR as FIR2, ThirdOrderFIR as FIR3};
+use crate::filters::{SecondOrderFIR as FIR};
 use crate::gnss::gps_l1_ca::{pvt, telemetry_decode, tracking};
 use crate::gnss::gps_l1_ca::telemetry_decode::subframe::{self, Subframe as SF, SubframeBody as SFB};
-
-pub const DEFAULT_CARRIER_A1:f64 = 0.9;
-pub const DEFAULT_CARRIER_A2:f64 = 0.9;
-pub const DEFAULT_CODE_A1:f64 = 0.7;
-pub const DEFAULT_CODE_A2:f64 = 0.7;
 
 pub const C_METERS_PER_SEC:f64 = 2.99792458e8;    // [m/s] speed of light
 
@@ -29,7 +24,7 @@ pub struct Channel {
 	pub prn:usize,
 	pub fs:f64,
 	state:ChannelState,
-	trk: tracking::algorithm_standard::Tracking<FIR3, FIR2>,
+	trk: tracking::algorithm_standard::Tracking<FIR, FIR>,
 	tlm: telemetry_decode::TelemetryDecoder,
 	last_acq_doppler:f64,
 	last_acq_test_stat:f64,
@@ -167,11 +162,9 @@ impl Channel {
 
 }
 
-pub fn new_default_channel(prn:usize, fs:f64) -> Channel { new_channel(prn, fs, DEFAULT_CARRIER_A1, DEFAULT_CARRIER_A2, DEFAULT_CODE_A1, DEFAULT_CODE_A2) }
-
-pub fn new_channel(prn:usize, fs:f64, a1_carr:f64, a2_carr:f64, a1_code:f64, a2_code:f64) -> Channel {
+pub fn new_default_channel(prn:usize, fs:f64) -> Channel { 
 	let state = ChannelState::AwaitingAcquisition;
-	let trk = tracking::algorithm_standard::new_default_tracker(prn, 0.0, fs, a1_carr, a2_carr, a1_code, a2_code);
+	let trk = tracking::algorithm_standard::new_default_tracker(prn, 0.0, fs);
 	let tlm = telemetry_decode::TelemetryDecoder::new();
 
 	Channel{ prn, fs, state, trk, tlm, last_acq_doppler:0.0, last_acq_test_stat: 0.0, last_sample_idx: 0, 

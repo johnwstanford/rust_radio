@@ -6,16 +6,16 @@ pub trait ScalarFilter {
 
 }
 
-pub struct SecondOrderFIR { pub b0: f64, pub b1: f64,
+pub struct FirstOrderFIR { pub b0: f64, pub b1: f64,
 							pub x0: f64, pub x1: f64 }
 
-impl SecondOrderFIR {
+impl FirstOrderFIR {
 
-	pub fn new(b0: f64, b1: f64) -> Self { SecondOrderFIR{ b0, b1, x0: 0.0, x1: 0.0} }
+	pub fn new(b0: f64, b1: f64) -> Self { Self { b0, b1, x0: 0.0, x1: 0.0} }
 
 }
 
-impl ScalarFilter for SecondOrderFIR {
+impl ScalarFilter for FirstOrderFIR {
 
 	fn apply(&mut self, x:f64) -> f64 {
 		self.x0 = self.x1;
@@ -30,16 +30,16 @@ impl ScalarFilter for SecondOrderFIR {
 
 }
 
-pub struct ThirdOrderFIR { pub b0: f64, pub b1: f64, pub b2: f64,
+pub struct SecondOrderFIR { pub b0: f64, pub b1: f64, pub b2: f64,
 						   pub x0: f64, pub x1: f64, pub x2: f64 }
 
-impl ThirdOrderFIR {
+impl SecondOrderFIR {
 
 	pub fn new(b0:f64, b1:f64, b2:f64) -> Self { Self{b0, b1, b2, x0: 0.0, x1: 0.0, x2: 0.0} }
 
 }
 
-impl ScalarFilter for ThirdOrderFIR {
+impl ScalarFilter for SecondOrderFIR {
 
 	fn apply(&mut self, x:f64) -> f64 {
 		self.x0 = self.x1;

@@ -57,7 +57,7 @@ fn main() {
 			let fs:f64 = fs_str.parse().unwrap();
 			eprintln!("Decoding {} at {} [samples/sec]", &fname, &fs);
 		
-			let mut inactive_channels:VecDeque<channel::DefaultChannel> = (1..=32).map(|prn| channel::new_channel(prn, fs, 0.01, 0.9, 0.9, 0.7, 0.7)).collect();
+			let mut inactive_channels:VecDeque<channel::DefaultChannel> = (1..=32).map(|prn| channel::new_channel(prn, fs, 0.01)).collect();
 			let mut active_channels:VecDeque<channel::DefaultChannel>   = inactive_channels.drain(..NUM_ACTIVE_CHANNELS).collect();
 
 			for s in io::file_source_i16_complex(&fname).map(|(x, idx)| Sample{ val: Complex{ re: x.0 as f64, im: x.1 as f64 }, idx}) {

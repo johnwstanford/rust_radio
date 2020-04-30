@@ -4,7 +4,7 @@ use std::f64::consts;
 use ::rustfft::num_complex::Complex;
 
 use crate::{Sample, DigSigProcErr};
-use crate::filters::{ScalarFilter, SecondOrderFIR, ThirdOrderFIR};
+use crate::filters::{ScalarFilter, SecondOrderFIR};
 use crate::gnss::gps_l1_ca;
 use crate::utils::IntegerClock;
 
@@ -14,6 +14,11 @@ use crate::utils::IntegerClock;
 
 // H0 long test_stat follows an exponential distribution w loc=2.27e-09, scale=2.52e-05
 // H1 long test_stat follows a beta distribution w a=2.07e+02, b=2.25e+06, loc=-6.96e-04, scale=1.03e+02
+
+pub const DEFAULT_FILTER_B1:f64 = 0.5;
+pub const DEFAULT_FILTER_B2:f64 = 0.5;
+pub const DEFAULT_FILTER_B3:f64 = 0.5;
+pub const DEFAULT_FILTER_B4:f64 = 0.5;
 
 pub const SHORT_COH_THRESH_PROMOTE_TO_LONG:f64 = 0.008;
 pub const SHORT_COH_THRESH_LOSS_OF_LOCK:f64    = 5.0e-7;
@@ -251,7 +256,7 @@ impl<A: ScalarFilter, B: ScalarFilter> Tracking<A, B> {
 
 }
 
-pub fn new_default_tracker(prn:usize, acq_freq_hz:f64, fs:f64, a1_carr:f64, a2_carr:f64, a1_code:f64, a2_code:f64) -> Tracking<ThirdOrderFIR, SecondOrderFIR> {
+pub fn new_default_tracker(prn:usize, acq_freq_hz:f64, fs:f64) -> Tracking<SecondOrderFIR, SecondOrderFIR> {
 	let local_code: Vec<Complex<f64>> = gps_l1_ca::signal_modulation::prn_complex(prn);
 	let code_len_samples: f64 = 0.001 * fs;
 
@@ -265,26 +270,16 @@ pub fn new_default_tracker(prn:usize, acq_freq_hz:f64, fs:f64, a1_carr:f64, a2_c
 	let code_dphase     = (radial_velocity_factor * 1.023e6) / fs;
 
 	// FIR coefficients for both filters have units of [1 / samples]
-	let carrier_filter = {
-		let a1:f64 = ((a2_carr*a2_carr) + (2.0*a1_carr) - (a1_carr*a1_carr) - 1.0) / SYMBOL_LEN_SEC;
-		let a0:f64 = (-a1_carr*a2_carr*a2_carr) / SYMBOL_LEN_SEC;
+	let (b1, b2, b3, b4) = (DEFAULT_FILTER_B1, DEFAULT_FILTER_B2, DEFAULT_FILTER_B3, DEFAULT_FILTER_B4);
+	let a0 = (b1*b2*b3*b4) / SYMBOL_LEN_SEC;
+	let a1 = -((b1+b2)*b3*b4 + (b3+b4)*b1*b2) / SYMBOL_LEN_SEC;
+	let a2 = (b3*b4 + b1*b2 + (b1+b2)*(b3+b4) - 1.0) / SYMBOL_LEN_SEC;
 
-		#[cfg(debug_assertions)]
-		eprintln!("Tracker carrier filter coeffs: {:.1}/fs, {:.1}/fs", a1, a0);
+	#[cfg(debug_assertions)]
+	eprintln!("Tracker filter coeffs: a0={:.1}/fs, a1={:.1}/fs, a2={:.1}/fs", a0, a1, a2);
 
-		// TODO: calculate these coefficients; this is just for testing
-		ThirdOrderFIR::new(62.5/fs, -500.0/fs, 500.0/fs)
-	};
-
-	let code_filter = {
-		let a1:f64 = ((a2_code*a2_code) + (2.0*a1_code) - (a1_code*a1_code) - 1.0) / SYMBOL_LEN_SEC;
-		let a0:f64 = (-a1_code*a2_code*a2_code) / SYMBOL_LEN_SEC;
-
-		#[cfg(debug_assertions)]
-		eprintln!("Tracker code filter coeffs: {:.1}/fs, {:.1}/fs", a1, a0);
-
-		SecondOrderFIR::new(a0/fs, a1/fs)
-	};
+	let carrier_filter = SecondOrderFIR::new(a0/fs, a1/fs, a2/fs);
+	let code_filter    = SecondOrderFIR::new(a0/fs, a1/fs, a2/fs);
 
 	let state = TrackingState::WaitingForInitialLockStatus{ prev_prompt: ZERO, prev_test_stat: 0.0 };
 

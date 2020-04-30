@@ -3,7 +3,8 @@ use std::f64::consts;
 
 use ::rustfft::num_complex::Complex;
 
-use crate::{filters, Sample, DigSigProcErr};
+use crate::{Sample, DigSigProcErr};
+use crate::filters::{ScalarFilter, SecondOrderFIR, ThirdOrderFIR};
 use crate::gnss::gps_l1_ca;
 use crate::utils::IntegerClock;
 
@@ -23,7 +24,7 @@ pub const SYMBOL_LEN_SEC:f64 = 1.0e-3;
 const ZERO:Complex<f64> = Complex{ re: 0.0, im: 0.0 };
 
 // Lock detection
-pub struct Tracking {
+pub struct Tracking<A: ScalarFilter, B: ScalarFilter> {
 	code_len_samples: f64,
 	pub prn:usize,
 	pub state: TrackingState,
@@ -40,8 +41,8 @@ pub struct Tracking {
 	code_phase: f64,
 	code_dphase: f64,
 
-	carrier_filter: filters::ThirdOrderFIR,
-	code_filter: filters::SecondOrderFIR,
+	carrier_filter: A,
+	code_filter: B,
 
 	// Used during summation over the short interval
 	sum_early:  Complex<f64>,
@@ -75,7 +76,7 @@ pub struct TrackingDebug {
 	pub test_stat:f64,
 }
 
-impl Tracking {
+impl<A: ScalarFilter, B: ScalarFilter> Tracking<A, B> {
 
 	pub fn carrier_freq_hz(&self) -> f64 { (self.carrier_dphase_rad * self.fs) / (2.0 * consts::PI) }
 	pub fn carrier_phase_rad(&self) -> f64 { self.carrier.arg() }
@@ -250,7 +251,7 @@ impl Tracking {
 
 }
 
-pub fn new_default_tracker(prn:usize, acq_freq_hz:f64, fs:f64, a1_carr:f64, a2_carr:f64, a1_code:f64, a2_code:f64) -> Tracking {
+pub fn new_default_tracker(prn:usize, acq_freq_hz:f64, fs:f64, a1_carr:f64, a2_carr:f64, a1_code:f64, a2_code:f64) -> Tracking<ThirdOrderFIR, SecondOrderFIR> {
 	let local_code: Vec<Complex<f64>> = gps_l1_ca::signal_modulation::prn_complex(prn);
 	let code_len_samples: f64 = 0.001 * fs;
 
@@ -272,7 +273,7 @@ pub fn new_default_tracker(prn:usize, acq_freq_hz:f64, fs:f64, a1_carr:f64, a2_c
 		eprintln!("Tracker carrier filter coeffs: {:.1}/fs, {:.1}/fs", a1, a0);
 
 		// TODO: calculate these coefficients; this is just for testing
-		filters::ThirdOrderFIR::new(62.5/fs, -500.0/fs, 500.0/fs)
+		ThirdOrderFIR::new(62.5/fs, -500.0/fs, 500.0/fs)
 	};
 
 	let code_filter = {
@@ -282,7 +283,7 @@ pub fn new_default_tracker(prn:usize, acq_freq_hz:f64, fs:f64, a1_carr:f64, a2_c
 		#[cfg(debug_assertions)]
 		eprintln!("Tracker code filter coeffs: {:.1}/fs, {:.1}/fs", a1, a0);
 
-		filters::new_second_order_fir(a1/fs, a0/fs)
+		SecondOrderFIR::new(a0/fs, a1/fs)
 	};
 
 	let state = TrackingState::WaitingForInitialLockStatus{ prev_prompt: ZERO, prev_test_stat: 0.0 };

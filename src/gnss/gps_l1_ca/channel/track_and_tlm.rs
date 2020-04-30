@@ -1,5 +1,6 @@
 
 use crate::{Sample, DigSigProcErr};
+use crate::filters::{SecondOrderFIR as FIR2, ThirdOrderFIR as FIR3};
 use crate::gnss::gps_l1_ca::{pvt, telemetry_decode, tracking};
 use crate::gnss::gps_l1_ca::telemetry_decode::subframe::{self, Subframe as SF, SubframeBody as SFB};
 
@@ -28,7 +29,7 @@ pub struct Channel {
 	pub prn:usize,
 	pub fs:f64,
 	state:ChannelState,
-	trk: tracking::algorithm_standard::Tracking,
+	trk: tracking::algorithm_standard::Tracking<FIR3, FIR2>,
 	tlm: telemetry_decode::TelemetryDecoder,
 	last_acq_doppler:f64,
 	last_acq_test_stat:f64,

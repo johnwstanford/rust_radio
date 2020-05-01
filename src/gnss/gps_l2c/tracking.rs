@@ -7,20 +7,23 @@ use crate::{Sample, DigSigProcErr};
 use crate::filters::{ScalarFilter, SecondOrderFIR};
 use crate::utils::IntegerClock;
 
-// Design SNR is TBD
-// H0 short test_stat follows an exponential distribution w TBD
-// H1 short test_stat follows a beta distribution w TBD
-
-// H0 long test_stat follows an exponential distribution w TBD
-// H1 long test_stat follows a beta distribution w TBD
+// Design SNR is 0.015, -18.24 [dB]
+// H0 test_stat for CM follows an exponential distribution w loc=1.99e-09, scale=1.23e-05
+// H1 test_stat for CM follows a beta distribution w a=1.79e+01, b=2.93e+01, loc=1.27e-04, scale=2.18e-03
+// Designed with scripts in Python repo commit 8602d2a8c
+// gnss/data/prn15_l2_cm.json        			Data file with test CM code
+// gnss/l2c_snr_simulation.py  		 			Simulation used to generate distribution
+// stats/describe.py 					 		Used to fit simulation results to distributions
+// gnss/l2c_tracking_test_stat_thresholds.py 	Used to analyze false alarm and miss rates
 
 pub const DEFAULT_FILTER_B1:f64 = 0.5;
 pub const DEFAULT_FILTER_B2:f64 = 0.5;
 pub const DEFAULT_FILTER_B3:f64 = 0.5;
 pub const DEFAULT_FILTER_B4:f64 = 0.5;
 
-pub const COH_THRESH_PROMOTE_TO_TRACKING:f64 = 0.0003;
-pub const COH_THRESH_LOSS_OF_LOCK:f64        = 5.0e-7;
+// False alarm rate predicted to be one in 3.91e+10
+// Miss rate predicted to be one in 1.52e+08
+pub const TEST_STAT_THRESH_CM:f64 = 0.0003;
 
 pub const SYMBOL_LEN_SEC:f64 = 20.0e-3;
 
@@ -160,7 +163,7 @@ impl<A: ScalarFilter, B: ScalarFilter> Tracking<A, B> {
 			let (result, opt_next_state) = match self.state {
 				// TODO: consider adding a usize to WaitingForInitialLockStatus to keep track of how long we've been trying,
 				// then maybe declare a loss of lock if this gets too high
-				TrackingState::WaitingForInitialLockStatus => if self.last_test_stat > COH_THRESH_PROMOTE_TO_TRACKING {
+				TrackingState::WaitingForInitialLockStatus => if self.last_test_stat > TEST_STAT_THRESH_CM {
 					(TrackingResult::NotReady, Some(TrackingState::Tracking))
 				} else {
 					(TrackingResult::NotReady, None)
@@ -175,7 +178,7 @@ impl<A: ScalarFilter, B: ScalarFilter> Tracking<A, B> {
 					let prompt_i:f64 = self.sum_prompt.re;
 
 					// Either return an error or the next bit
-					if self.last_test_stat < COH_THRESH_LOSS_OF_LOCK { 	
+					if self.last_test_stat < TEST_STAT_THRESH_CM { 	
 						// For a long coherent processing interval, we should be over this threshold under H0 or under this
 						// threshold with H1 with a vanishingly small likelihood, i.e. this should be a very good indicator of 
 						// the lock status without any need for other filtering or anything like that

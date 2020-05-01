@@ -22,6 +22,8 @@ impl Acquisition {
 		let stage_two = super::make_basic_acquisition(symbol, fs, prn, 0.0, vec![]);
 		Acquisition{ fs, test_statistic_threshold, stage_two_resolution_hz, state, stage_one, stage_two }
 	}
+
+	pub fn prn(&self) -> usize { self.stage_one.prn }
 }
 
 impl super::Acquisition for Acquisition {

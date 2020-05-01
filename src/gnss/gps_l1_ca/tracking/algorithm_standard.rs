@@ -15,6 +15,12 @@ use crate::utils::IntegerClock;
 // H0 long test_stat follows an exponential distribution w loc=2.27e-09, scale=2.52e-05
 // H1 long test_stat follows a beta distribution w a=2.07e+02, b=2.25e+06, loc=-6.96e-04, scale=1.03e+02
 
+// Design scripts in Python repo under commit c61f35a9
+// gnss/l1_ca_long_snr_simulation.py used to simulate long coherent test stats
+// gnss/l1_ca_snr_simulation.py used to simulate short coherent test stats
+// stats/describe.py fits distributions to the JSON output of the other two 
+//   scripts and ranks the results by best fit
+
 pub const DEFAULT_FILTER_B1:f64 = 0.5;
 pub const DEFAULT_FILTER_B2:f64 = 0.5;
 pub const DEFAULT_FILTER_B3:f64 = 0.5;

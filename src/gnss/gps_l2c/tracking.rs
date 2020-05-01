@@ -19,7 +19,7 @@ pub const DEFAULT_FILTER_B2:f64 = 0.5;
 pub const DEFAULT_FILTER_B3:f64 = 0.5;
 pub const DEFAULT_FILTER_B4:f64 = 0.5;
 
-pub const COH_THRESH_PROMOTE_TO_TRACKING:f64 = 0.008;
+pub const COH_THRESH_PROMOTE_TO_TRACKING:f64 = 0.0003;
 pub const COH_THRESH_LOSS_OF_LOCK:f64        = 5.0e-7;
 
 pub const SYMBOL_LEN_SEC:f64 = 20.0e-3;
@@ -32,6 +32,8 @@ pub struct Tracking<A: ScalarFilter, B: ScalarFilter> {
 	pub state: TrackingState,
 	pub fs:f64,
 	pub local_code:Vec<Complex<f64>>,
+
+	last_test_stat:f64,
 
 	sv_tow_sec_inner:IntegerClock,
 	sv_tow_sec_outer:IntegerClock,
@@ -56,7 +58,7 @@ pub struct Tracking<A: ScalarFilter, B: ScalarFilter> {
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum TrackingState {
 	WaitingForInitialLockStatus,
-	Tracking{ test_stat:f64 },
+	Tracking,
 	LostLock,
 }
 
@@ -84,10 +86,7 @@ impl<A: ScalarFilter, B: ScalarFilter> Tracking<A, B> {
 	pub fn carrier_phase_rad(&self) -> f64 { self.carrier.arg() }
 	pub fn code_phase_samples(&self) -> f64 { self.code_phase * (self.fs / 1.023e6) }
 	pub fn code_dphase(&self) -> f64 { self.code_dphase }
-	pub fn test_stat(&self) -> f64 { match self.state {
-		TrackingState::Tracking{ test_stat } => test_stat,
-		_ => 0.0,
-	}}
+	pub fn test_stat(&self) -> f64 { self.last_test_stat }
 
 	pub fn sv_time_of_week(&self) -> f64 { self.sv_tow_sec_outer.time() }
 	pub fn reset_clock(&mut self, t:f64) {
@@ -121,13 +120,14 @@ impl<A: ScalarFilter, B: ScalarFilter> Tracking<A, B> {
 		self.input_signal_power += x.norm_sqr();
 
 		// Integrate early, prompt, and late sums
-	    let e_idx:usize = if self.code_phase < 0.5 { 10229 } else { (self.code_phase - 0.5).floor() as usize };
+	    let e_idx:usize = if self.code_phase < 0.5 { 20459 } else { (self.code_phase - 0.5).floor() as usize };
 	    
-	    self.sum_early  += self.local_code[e_idx%1023] * x;
-	    self.sum_prompt += self.local_code[(self.code_phase.floor() as usize)%1023] * x;
-	    self.sum_late   += self.local_code[(e_idx+1)%1023] * x;			
+	    self.sum_early  += self.local_code[e_idx%20460] * x;
+	    self.sum_prompt += self.local_code[(self.code_phase.floor() as usize)%20460] * x;
+	    self.sum_late   += self.local_code[(e_idx+1)%20460] * x;			
 		
-		if self.code_phase >= 10230.0 {
+		if self.code_phase >= 20460.0 {
+
 			// End of a 1-ms short coherent cycle
 			self.sv_tow_sec_inner.inc();
 			self.sv_tow_sec_outer.reset(self.sv_tow_sec_inner.time());
@@ -142,7 +142,7 @@ impl<A: ScalarFilter, B: ScalarFilter> Tracking<A, B> {
 				self.prn, self.carrier.re, self.carrier.im, carrier_error, self.carrier_dphase_rad);
 
 			// Update code tracking
-			self.code_phase -= 1023.0;
+			self.code_phase -= 20460.0;
 			let code_error:f64 = {
 				let e:f64 = self.sum_early.norm();
 				let l:f64 = self.sum_late.norm();
@@ -151,36 +151,21 @@ impl<A: ScalarFilter, B: ScalarFilter> Tracking<A, B> {
 			self.code_dphase += self.code_filter.apply(code_error);
 			self.sv_tow_sec_outer.set_clock_rate(self.code_dphase * (self.fs.powi(2) / 1.023e6));
 
-			let test_stat = self.sum_prompt.norm_sqr()  / (self.input_signal_power * self.code_len_samples);
+			self.last_test_stat = self.sum_prompt.norm_sqr()  / (self.input_signal_power * self.code_len_samples);
 
-			// #[cfg(debug_assertions)]
+			#[cfg(debug_assertions)]
 			eprintln!("PRN {} code update: e={:.6e}, p={:.6e}, l={:.6e}, dphase={:.6e} [chips/sample]\n   test_stat={:.6}", 
-				self.prn, self.sum_early.norm(), self.sum_prompt.norm(), self.sum_late.norm(), self.code_dphase, test_stat);
+				self.prn, self.sum_early.norm(), self.sum_prompt.norm(), self.sum_late.norm(), self.code_dphase, self.last_test_stat);
 
 			let (result, opt_next_state) = match self.state {
-				TrackingState::WaitingForInitialLockStatus => {
-
-					/*if *prev_test_stat > SHORT_COH_THRESH_PROMOTE_TO_LONG && test_stat > SHORT_COH_THRESH_PROMOTE_TO_LONG && (prev_prompt.re > 0.0) != (self.sum_prompt.re > 0.0) { 		
-						// If the signal is not present, each coherent interval has a TBD chance of staying under this threshold
-						// If the signal is present,     each coherent interval has a TBD chance of staying under this threshold
-						// So if the signal is present, it should only take about TBD tries to exceed this threshold
-						let next_state = TrackingState::Tracking{ num_short_intervals: 1, sum_prompt_long: self.sum_prompt, input_power_long: self.input_signal_power, test_stat };
-						(TrackingResult::NotReady, Some(next_state))
-					} else if test_stat < SHORT_COH_THRESH_LOSS_OF_LOCK {	
-						// If the signal is not present, each coherent interval has a TBD chance of staying under this threshold
-						// If the signal is present,     each coherent interval has a TBD chance of staying under this threshold
-						// If the signal is not present, we should on average only waste about 1 [sec] trying to track it
-						(TrackingResult::Err(DigSigProcErr::LossOfLock), Some(TrackingState::LostLock))
-					} else {
-						*prev_test_stat   = test_stat;
-						*prev_prompt      = self.sum_prompt;
-						(TrackingResult::NotReady, None)						
-					}*/
-
+				// TODO: consider adding a usize to WaitingForInitialLockStatus to keep track of how long we've been trying,
+				// then maybe declare a loss of lock if this gets too high
+				TrackingState::WaitingForInitialLockStatus => if self.last_test_stat > COH_THRESH_PROMOTE_TO_TRACKING {
+					(TrackingResult::NotReady, Some(TrackingState::Tracking))
+				} else {
 					(TrackingResult::NotReady, None)
-
 				},
-				TrackingState::Tracking{ ref mut test_stat } => {
+				TrackingState::Tracking => {
 
 					// Normalize the carrier at the end of every symbol, which is every 20 ms
 					self.carrier = self.carrier / self.carrier.norm();
@@ -190,7 +175,7 @@ impl<A: ScalarFilter, B: ScalarFilter> Tracking<A, B> {
 					let prompt_i:f64 = self.sum_prompt.re;
 
 					// Either return an error or the next bit
-					if *test_stat < COH_THRESH_LOSS_OF_LOCK { 	
+					if self.last_test_stat < COH_THRESH_LOSS_OF_LOCK { 	
 						// For a long coherent processing interval, we should be over this threshold under H0 or under this
 						// threshold with H1 with a vanishingly small likelihood, i.e. this should be a very good indicator of 
 						// the lock status without any need for other filtering or anything like that
@@ -285,6 +270,8 @@ pub fn new_default_tracker(prn:usize, acq_freq_hz:f64, fs:f64) -> Tracking<Secon
 
 		sv_tow_sec_inner: IntegerClock::new(50.0),		// 1000 [Hz] symbol rate for L1, 50 [Hz] symbol rate for L2
 		sv_tow_sec_outer: IntegerClock::new(fs),		// Sample rate is still provided
+
+		last_test_stat: 0.0,
 
 		// Carrier and code
 		carrier, carrier_inc, carrier_dphase_rad, code_phase, code_dphase, carrier_filter, code_filter, 

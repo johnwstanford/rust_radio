@@ -11,12 +11,14 @@ use clap::{Arg, App};
 use colored::*;
 use rust_radio::{io, Sample};
 use rust_radio::gnss::common::acquisition::{Acquisition, two_stage_pcps};
-use rust_radio::gnss::gps_l2c::{signal_modulation, tracking, L2_CM_PERIOD_SEC};
+use rust_radio::gnss::gps_l2c::{signal_modulation, L2_CM_PERIOD_SEC};
+use rust_radio::gnss::gps_l2c::tracking::{self, TrackingResult};
 use rustfft::num_complex::Complex;
 
 #[derive(Debug)]
 enum ChannelState {
 	Acquisition,
+	PullIn(usize),
 	Tracking,
 }
 
@@ -66,6 +68,7 @@ fn main() {
 
 	let mut trk = tracking::new_default_tracker(prn, 0.0, fs);
 	let mut state = ChannelState::Acquisition;
+	let mut worst_trk_test_stat:f64 = 1.0;
 
 	for s in io::file_source_i16_complex(&fname).map(|(x, idx)| Sample{ val: Complex{ re: x.0 as f64, im: x.1 as f64 }, idx}) {
 
@@ -75,11 +78,17 @@ fn main() {
 
 				match acq.block_for_result() {
 					Ok(Some(result)) => {
-						eprintln!("PRN {:02} {}", prn, 
+						eprintln!("{:5.1} [sec] PRN {:02} {}", (s.idx as f64)/fs, prn, 
 							format!("CM: {:7.1} +/- {:7.1} [Hz], {:6} [chips], {:.8}", result.doppler_hz, result.doppler_step_hz, result.code_phase, result.test_statistic()).yellow());
 
 						trk.initialize(result.doppler_hz);
-						Some(ChannelState::Tracking)
+
+						let next_state = match result.code_phase {
+							0 => ChannelState::Tracking,
+							n => ChannelState::PullIn(n),
+						};
+						Some(next_state)
+						
 					},
 					Err(msg) => {
 						eprintln!("PRN {}: Error, {}", prn, msg);
@@ -89,10 +98,33 @@ fn main() {
 				}
 
 			},
+			ChannelState::PullIn(n) => {
+				let next_state = match n {
+					1 => ChannelState::Tracking,
+					_ => ChannelState::PullIn(n-1),
+				};
+				Some(next_state)
+			},
 			ChannelState::Tracking => {
-				eprintln!("Tracking...");
 
-				None
+				match trk.apply(&s) {
+					TrackingResult::Ok{ prompt_i:_, bit_idx:_ } => {
+						if trk.test_stat() < worst_trk_test_stat {
+							worst_trk_test_stat = trk.test_stat();
+						}
+
+						eprintln!("{:5.1} [sec] PRN {:02} {}", (s.idx as f64)/fs, prn, format!("TRK OK: {:.8} vs {:.8}", trk.test_stat(), worst_trk_test_stat).green());
+
+						None
+					},
+					TrackingResult::Err(e) => {
+						eprintln!("PRN {:02} {}", prn, format!("ERR: {:?}", e).red());
+
+						None
+					}
+					TrackingResult::NotReady => None
+				}
+
 			}
 		};
 

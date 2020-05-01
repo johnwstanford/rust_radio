@@ -270,6 +270,7 @@ pub fn new_default_tracker(prn:usize, acq_freq_hz:f64, fs:f64) -> Tracking<Secon
 	let code_dphase     = (radial_velocity_factor * 1.023e6) / fs;
 
 	// FIR coefficients for both filters have units of [1 / samples]
+	// Prototyped in Python repo on commit ba5ce609149 under controls/pll_state_space_0_3tap_fir.py
 	let (b1, b2, b3, b4) = (DEFAULT_FILTER_B1, DEFAULT_FILTER_B2, DEFAULT_FILTER_B3, DEFAULT_FILTER_B4);
 	let a0 = (b1*b2*b3*b4) / SYMBOL_LEN_SEC;
 	let a1 = -((b1+b2)*b3*b4 + (b3+b4)*b1*b2) / SYMBOL_LEN_SEC;

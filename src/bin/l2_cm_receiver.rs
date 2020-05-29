@@ -15,11 +15,14 @@ use rust_radio::gnss::gps_l2c::{signal_modulation, L2_CM_PERIOD_SEC};
 use rust_radio::gnss::gps_l2c::tracking::{self, TrackingResult};
 use rustfft::num_complex::Complex;
 
+const MAX_ACQ_TRIES_SAMPLES:usize = 2000000;
+
 #[derive(Debug)]
 enum ChannelState {
-	Acquisition,
+	Acquisition(usize),
 	PullIn(usize),
 	Tracking,
+	LostLock,
 }
 
 fn main() {
@@ -66,17 +69,21 @@ fn main() {
 			}
 		}
 
-		two_stage_pcps::Acquisition::new(symbol_cm, fs, prn, 140, 2, 10.0, 0.001, 0)
+		two_stage_pcps::Acquisition::new(symbol_cm, fs, prn, 140, 2, 2.0, 0.0005, 0)
 	};
 
 	let mut trk = tracking::new_default_tracker(prn, 0.0, fs);
-	let mut state = ChannelState::Acquisition;
-	let mut worst_trk_test_stat:f64 = 1.0;
+	let mut state = ChannelState::Acquisition(0);
 
-	for s in io::file_source_i16_complex(&fname).map(|(x, idx)| Sample{ val: Complex{ re: x.0 as f64, im: x.1 as f64 }, idx}) {
+	let mut bits:Vec<f64> = vec![];
+
+	'outer: for s in io::file_source_i16_complex(&fname).map(|(x, idx)| Sample{ val: Complex{ re: x.0 as f64, im: x.1 as f64 }, idx}) {
 
 		let opt_next_state:Option<ChannelState> = match state {
-			ChannelState::Acquisition => {
+			ChannelState::Acquisition(num_tries_so_far) => {
+
+				if num_tries_so_far > MAX_ACQ_TRIES_SAMPLES { break 'outer; }
+
 				acq.provide_sample(&s).unwrap();
 
 				match acq.block_for_result() {
@@ -93,11 +100,7 @@ fn main() {
 						Some(next_state)
 						
 					},
-					Err(msg) => {
-						eprintln!("PRN {}: Error, {}", prn, msg);
-						None
-					},
-					Ok(None) => None
+					_ => Some(ChannelState::Acquisition(num_tries_so_far+1))
 				}
 
 			},
@@ -111,23 +114,26 @@ fn main() {
 			ChannelState::Tracking => {
 
 				match trk.apply(&s) {
-					TrackingResult::Ok{ prompt_i:_, bit_idx:_ } => {
-						if trk.test_stat() < worst_trk_test_stat {
-							worst_trk_test_stat = trk.test_stat();
-						}
+					TrackingResult::Ok{ prompt_i, bit_idx:_ } => {
 
-						eprintln!("{:5.1} [sec] PRN {:02} {}", (s.idx as f64)/fs, prn, format!("TRK OK: {:.8} vs {:.8}", trk.test_stat(), worst_trk_test_stat).green());
+						eprintln!("{:5.1} [sec] PRN {:02} {}", (s.idx as f64)/fs, prn, format!("TRK OK: {:.8}, {:.1} [Hz]", trk.test_stat(), trk.carrier_freq_hz()).green());
+
+						bits.push(prompt_i);
 
 						None
 					},
 					TrackingResult::Err(e) => {
 						eprintln!("PRN {:02} {}", prn, format!("ERR: {:?}", e).red());
 
-						None
+						Some(ChannelState::LostLock)
 					}
 					TrackingResult::NotReady => None
 				}
 
+			},
+			ChannelState::LostLock => { 
+
+				break 'outer;
 			}
 		};
 
@@ -137,5 +143,7 @@ fn main() {
 
 
 	}
+
+	println!("{}", serde_json::to_string_pretty(&bits).unwrap());
 
 }

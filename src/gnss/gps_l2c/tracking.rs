@@ -25,6 +25,8 @@ pub const DEFAULT_FILTER_B4:f64 = 0.5;
 // Miss rate predicted to be one in 1.52e+08
 pub const TEST_STAT_THRESH_CM:f64 = 0.0003;
 
+pub const INITIAL_LOCK_ATTEMPTS:usize = 20;
+
 pub const SYMBOL_LEN_SEC:f64 = 20.0e-3;
 
 const ZERO:Complex<f64> = Complex{ re: 0.0, im: 0.0 };
@@ -60,7 +62,7 @@ pub struct Tracking<A: ScalarFilter, B: ScalarFilter> {
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum TrackingState {
-	WaitingForInitialLockStatus,
+	WaitingForInitialLockStatus(usize),
 	Tracking,
 	LostLock,
 }
@@ -161,12 +163,15 @@ impl<A: ScalarFilter, B: ScalarFilter> Tracking<A, B> {
 				self.prn, self.sum_early.norm(), self.sum_prompt.norm(), self.sum_late.norm(), self.code_dphase, self.last_test_stat);
 
 			let (result, opt_next_state) = match self.state {
-				// TODO: consider adding a usize to WaitingForInitialLockStatus to keep track of how long we've been trying,
-				// then maybe declare a loss of lock if this gets too high
-				TrackingState::WaitingForInitialLockStatus => if self.last_test_stat > TEST_STAT_THRESH_CM {
+				TrackingState::WaitingForInitialLockStatus(mut tries_so_far) => if self.last_test_stat > TEST_STAT_THRESH_CM {
 					(TrackingResult::NotReady, Some(TrackingState::Tracking))
 				} else {
-					(TrackingResult::NotReady, None)
+					tries_so_far += 1;
+					if tries_so_far >= INITIAL_LOCK_ATTEMPTS {
+						(TrackingResult::Err(DigSigProcErr::LossOfLock), None)
+					} else {
+						(TrackingResult::NotReady, None)
+					}
 				},
 				TrackingState::Tracking => {
 
@@ -225,7 +230,7 @@ impl<A: ScalarFilter, B: ScalarFilter> Tracking<A, B> {
 		self.sum_prompt = ZERO;
 		self.sum_late   = ZERO;
 
-		self.state = TrackingState::WaitingForInitialLockStatus;
+		self.state = TrackingState::WaitingForInitialLockStatus(0);
 		
 		// Leave fs and local_code as is
 	}
@@ -266,7 +271,7 @@ pub fn new_default_tracker(prn:usize, acq_freq_hz:f64, fs:f64) -> Tracking<Secon
 	let carrier_filter = SecondOrderFIR::new(a0/fs, a1/fs, a2/fs);
 	let code_filter    = SecondOrderFIR::new(a0/fs, a1/fs, a2/fs);
 
-	let state = TrackingState::WaitingForInitialLockStatus;
+	let state = TrackingState::WaitingForInitialLockStatus(0);
 
 	Tracking { 
 		code_len_samples, prn, state, fs, local_code, 

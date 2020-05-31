@@ -17,6 +17,7 @@ use rust_radio::gnss::gps_l2c::tracking::{self, TrackingResult};
 use rustfft::num_complex::Complex;
 
 const MAX_ACQ_TRIES_SAMPLES:usize = 2000000;
+const FEC_DECODE_LEN:usize = 1800;
 
 #[derive(Debug)]
 enum ChannelState {
@@ -124,7 +125,7 @@ fn main() {
 					TrackingResult::Ok{ prompt_i, bit_idx:_ } => {
 
 						symbols.push(prompt_i > 0.0);
-						if symbols.len() == 70 {
+						if symbols.len() == FEC_DECODE_LEN {
 							let opt_decoded_bits = error_correction::decode(symbols.drain(..).collect());
 							match opt_decoded_bits {
 								Some(mut decoded_bits) => {

@@ -12,7 +12,7 @@ use colored::*;
 use rust_radio::{io, Sample};
 use rust_radio::gnss::common::acquisition::{Acquisition, two_stage_pcps};
 use rust_radio::gnss::gps_l2c::{signal_modulation, L2_CM_PERIOD_SEC};
-use rust_radio::gnss::gps_l2c::tlm_decode::error_correction;
+use rust_radio::gnss::gps_l2c::tlm_decode::{error_correction, preamble_detection};
 use rust_radio::gnss::gps_l2c::tracking::{self, TrackingResult};
 use rustfft::num_complex::Complex;
 
@@ -22,7 +22,7 @@ const MAX_ACQ_TRIES_SAMPLES:usize = 2000000;
 enum ChannelState {
 	Acquisition(usize),
 	PullIn(usize),
-	Tracking,
+	Tracking{ tried_skip:bool },
 	LostLock,
 }
 
@@ -73,7 +73,12 @@ fn main() {
 		two_stage_pcps::Acquisition::new(symbol_cm, fs, prn, 140, 2, 2.0, 0.0005, 0)
 	};
 
+	// Tracking
 	let mut trk = tracking::new_default_tracker(prn, 0.0, fs);
+
+	// Telemetry decoding
+	let mut preamble_detector = preamble_detection::PreambleDetector::new();
+
 	let mut state = ChannelState::Acquisition(0);
 
 	let mut bits:Vec<bool> = vec![];
@@ -96,7 +101,7 @@ fn main() {
 						trk.initialize(result.doppler_hz);
 
 						let next_state = match result.code_phase {
-							0 => ChannelState::Tracking,
+							0 => ChannelState::Tracking{ tried_skip: false },
 							n => ChannelState::PullIn(n),
 						};
 						Some(next_state)
@@ -108,27 +113,46 @@ fn main() {
 			},
 			ChannelState::PullIn(n) => {
 				let next_state = match n {
-					1 => ChannelState::Tracking,
+					1 => ChannelState::Tracking{ tried_skip: false },
 					_ => ChannelState::PullIn(n-1),
 				};
 				Some(next_state)
 			},
-			ChannelState::Tracking => {
+			ChannelState::Tracking{ mut tried_skip } => {
 
 				match trk.apply(&s) {
 					TrackingResult::Ok{ prompt_i, bit_idx:_ } => {
-
-						eprintln!("{:5.1} [sec] PRN {:02} {}", (s.idx as f64)/fs, prn, format!("TRK OK: {:.8}, {:.1} [Hz]", trk.test_stat(), trk.carrier_freq_hz()).green());
 
 						symbols.push(prompt_i > 0.0);
 						if symbols.len() == 70 {
 							let opt_decoded_bits = error_correction::decode(symbols.drain(..).collect());
 							match opt_decoded_bits {
 								Some(mut decoded_bits) => {
+									
+									match preamble_detector.apply(&decoded_bits) {
+										Ok(Some((n_skip_preamble, bit_sense))) => {
+											eprintln!("{:6.1} [sec] PRN {:02} {}", (s.idx as f64)/fs, prn, format!("TRK OK: {:.8}, {:.1} [Hz], {} preamble at {}", 
+												trk.test_stat(), trk.carrier_freq_hz(), bit_sense, n_skip_preamble).green());
+										},
+										_ => {
+											eprintln!("{:6.1} [sec] PRN {:02} {}", (s.idx as f64)/fs, prn, format!("TRK OK: {:.8}, {:.1} [Hz]", trk.test_stat(), trk.carrier_freq_hz()).green());
+										}										
+									}
+									
 									bits.append(&mut decoded_bits);
 									None
 								},
-								None => Some(ChannelState::LostLock)
+								None => {
+									if tried_skip {
+										Some(ChannelState::LostLock)
+									} else {
+										// Try skipping a symbol if this doesn't work the first time; we don't know if we started on a G1 or G2 symbol
+										symbols.push(prompt_i > 0.0);
+										tried_skip = true;
+										None
+									}
+									
+								}
 							}
 						} else {
 							None

@@ -12,6 +12,7 @@ use colored::*;
 use rust_radio::{io, Sample};
 use rust_radio::gnss::common::acquisition::{Acquisition, two_stage_pcps};
 use rust_radio::gnss::gps_l2c::{signal_modulation, L2_CM_PERIOD_SEC};
+use rust_radio::gnss::gps_l2c::tlm_decode::error_correction;
 use rust_radio::gnss::gps_l2c::tracking::{self, TrackingResult};
 use rustfft::num_complex::Complex;
 
@@ -75,7 +76,8 @@ fn main() {
 	let mut trk = tracking::new_default_tracker(prn, 0.0, fs);
 	let mut state = ChannelState::Acquisition(0);
 
-	let mut bits:Vec<f64> = vec![];
+	let mut bits:Vec<bool> = vec![];
+	let mut symbols:Vec<bool> = vec![];
 
 	'outer: for s in io::file_source_i16_complex(&fname).map(|(x, idx)| Sample{ val: Complex{ re: x.0 as f64, im: x.1 as f64 }, idx}) {
 
@@ -118,9 +120,20 @@ fn main() {
 
 						eprintln!("{:5.1} [sec] PRN {:02} {}", (s.idx as f64)/fs, prn, format!("TRK OK: {:.8}, {:.1} [Hz]", trk.test_stat(), trk.carrier_freq_hz()).green());
 
-						bits.push(prompt_i);
+						symbols.push(prompt_i > 0.0);
+						if symbols.len() == 70 {
+							let opt_decoded_bits = error_correction::decode(symbols.drain(..).collect());
+							match opt_decoded_bits {
+								Some(mut decoded_bits) => {
+									bits.append(&mut decoded_bits);
+									None
+								},
+								None => Some(ChannelState::LostLock)
+							}
+						} else {
+							None
+						}
 
-						None
 					},
 					TrackingResult::Err(e) => {
 						eprintln!("PRN {:02} {}", prn, format!("ERR: {:?}", e).red());

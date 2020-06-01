@@ -19,7 +19,7 @@ impl Acquisition {
 	pub fn new(symbol:Vec<i8>, fs:f64, prn:usize, n_coarse:usize, n_fine:usize, stage_two_resolution_hz:f64, test_statistic_threshold:f64, n_skip:usize) -> Acquisition {
 		let state = State::StageOne;
 		let stage_one = super::make_acquisition(symbol.clone(), fs, prn, n_coarse, n_fine, test_statistic_threshold, n_skip);
-		let stage_two = super::make_basic_acquisition(symbol, fs, prn, 0.0, vec![]);
+		let stage_two = super::basic_pcps::Acquisition::new(symbol, fs, prn, 0.0, vec![]);
 		Acquisition{ fs, test_statistic_threshold, stage_two_resolution_hz, state, stage_one, stage_two }
 	}
 

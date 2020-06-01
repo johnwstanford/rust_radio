@@ -87,7 +87,7 @@ fn main() {
 			}
 		}
 
-		let acq_cl = acquisition::make_basic_acquisition(symbol_cl, fs, prn, 0.0, vec![-2.0, -1.0, 0.0, 1.0, 2.0]);
+		let acq_cl = acquisition::basic_pcps::Acquisition::new(symbol_cl, fs, prn, 0.0, vec![-2.0, -1.0, 0.0, 1.0, 2.0]);
 
 		(acq_cm, acq_cl)
 	}).collect();

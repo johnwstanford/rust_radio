@@ -3,7 +3,9 @@ use std::f64::consts;
 use std::sync::Arc;
 
 use rustfft::FFT;
+use rustfft::FFTplanner;
 use rustfft::num_complex::Complex;
+use rustfft::num_traits::Zero;
 
 use crate::Sample;
 
@@ -20,6 +22,36 @@ pub struct Acquisition {
 	pub ifft:Arc<dyn FFT<f64>>,
 	pub ifft_out: Vec<Complex<f64>>,
 	pub last_sample_idx: usize,
+}
+
+impl Acquisition {
+
+	pub fn new(symbol:Vec<i8>, fs:f64, prn:usize, test_statistic_threshold:f64, doppler_freqs:Vec<f64>) -> Self {
+
+		let len_fft:usize = symbol.len();
+
+		// Forward FFT
+		let mut local_code_time_domain: Vec<Complex<f64>> = symbol.into_iter().map(|b| Complex{ re: b as f64, im: 0.0 }).collect();
+		let mut fft_out: Vec<Complex<f64>> = vec![Complex::zero(); len_fft];
+		let mut planner = FFTplanner::new(false);
+		let fft = planner.plan_fft(len_fft);
+		fft.process(&mut local_code_time_domain, &mut fft_out);
+
+		let local_code_freq_domain: Vec<Complex<f64>> = (&fft_out).into_iter().map(|p| p.conj() ).collect();
+
+		// Inverse FFT
+		let mut inv_planner = FFTplanner::new(true);
+		let ifft = inv_planner.plan_fft(len_fft);
+		let mut ifft_out: Vec<Complex<f64>> = vec![Complex::zero(); len_fft];
+		ifft.process(&mut fft_out, &mut ifft_out);
+
+		let buffer:Vec<Complex<f64>> = vec![Complex::zero()];	// Because we're starting last_sample_idx at zero
+
+		Self { fs, prn, test_statistic_threshold, doppler_freqs,
+			buffer, len_fft, fft, local_code_freq_domain, fft_out, ifft, ifft_out,
+			last_sample_idx: 0 }
+	}
+
 }
 
 impl super::Acquisition for Acquisition {

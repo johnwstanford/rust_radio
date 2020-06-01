@@ -13,7 +13,7 @@ use rust_radio::{io, Sample};
 use rust_radio::gnss::common::acquisition::{Acquisition, two_stage_pcps};
 use rust_radio::gnss::gps_l2c::{signal_modulation, L2_CM_PERIOD_SEC};
 use rust_radio::gnss::gps_l2c::tlm_decode::{error_correction, preamble_detection};
-use rust_radio::gnss::gps_l2c::tracking::{self, TrackingResult};
+use rust_radio::gnss::gps_l2c::tracking_cm::{self, TrackingResult};
 use rustfft::num_complex::Complex;
 
 const MAX_ACQ_TRIES_SAMPLES:usize = 2000000;
@@ -75,7 +75,7 @@ fn main() {
 	};
 
 	// Tracking
-	let mut trk = tracking::new_default_tracker(prn, 0.0, fs);
+	let mut trk = tracking_cm::new_default_tracker(prn, 0.0, fs);
 
 	// Telemetry decoding
 	let mut preamble_detector = preamble_detection::PreambleDetector::new();

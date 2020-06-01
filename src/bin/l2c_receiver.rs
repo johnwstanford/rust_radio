@@ -12,7 +12,7 @@ use colored::*;
 use rust_radio::{io, Sample};
 use rust_radio::gnss::common::acquisition::{Acquisition, two_stage_pcps};
 use rust_radio::gnss::gps_l2c::{signal_modulation, L2_CM_PERIOD_SEC};
-use rust_radio::gnss::gps_l2c::tracking::{self, TrackingResult};
+use rust_radio::gnss::gps_l2c::tracking_cm::{self, TrackingResult};
 use rustfft::num_complex::Complex;
 
 #[derive(Debug)]
@@ -69,7 +69,7 @@ fn main() {
 		two_stage_pcps::Acquisition::new(symbol_cm, fs, prn, 140, 2, 10.0, 0.001, 0)
 	};
 
-	let mut trk = tracking::new_default_tracker(prn, 0.0, fs);
+	let mut trk = tracking_cm::new_default_tracker(prn, 0.0, fs);
 	let mut state = ChannelState::Acquisition;
 	let mut worst_trk_test_stat:f64 = 1.0;
 

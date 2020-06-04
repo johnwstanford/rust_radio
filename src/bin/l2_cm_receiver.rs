@@ -12,7 +12,7 @@ use colored::*;
 use rust_radio::{io, Sample};
 use rust_radio::gnss::common::acquisition::{Acquisition, two_stage_pcps};
 use rust_radio::gnss::gps_l2c::{signal_modulation, L2_CM_PERIOD_SEC};
-use rust_radio::gnss::gps_l2c::tlm_decode::{error_correction, preamble_detection};
+use rust_radio::gnss::gps_l2c::tlm_decode::{error_correction, preamble_and_crc};
 use rust_radio::gnss::gps_l2c::tracking_cm::{self, TrackingResult};
 use rustfft::num_complex::Complex;
 
@@ -78,12 +78,12 @@ fn main() {
 	let mut trk = tracking_cm::new_default_tracker(prn, 0.0, fs);
 
 	// Telemetry decoding
-	let mut preamble_detector = preamble_detection::PreambleDetector::new();
+	let mut pac = preamble_and_crc::PreambleAndCrc::new();
 
 	let mut state = ChannelState::Acquisition(0);
 
-	let mut bits:Vec<bool> = vec![];
 	let mut symbols:Vec<bool> = vec![];
+	let mut subframes:Vec<Vec<bool>> = vec![];
 
 	'outer: for s in io::file_source_i16_complex(&fname).map(|(x, idx)| Sample{ val: Complex{ re: x.0 as f64, im: x.1 as f64 }, idx}) {
 
@@ -128,19 +128,18 @@ fn main() {
 						if symbols.len() == FEC_DECODE_LEN {
 							let opt_decoded_bits = error_correction::decode(symbols.drain(..).collect());
 							match opt_decoded_bits {
-								Some(mut decoded_bits) => {
+								Some(decoded_bits) => {
 									
-									match preamble_detector.apply(&decoded_bits) {
-										Ok(Some((n_skip_preamble, bit_sense))) => {
-											eprintln!("{:6.1} [sec] PRN {:02} {}", (s.idx as f64)/fs, prn, format!("TRK OK: {:.8}, {:.1} [Hz], {} preamble at {}", 
-												trk.test_stat(), trk.carrier_freq_hz(), bit_sense, n_skip_preamble).green());
-										},
-										_ => {
-											eprintln!("{:6.1} [sec] PRN {:02} {}", (s.idx as f64)/fs, prn, format!("TRK OK: {:.8}, {:.1} [Hz]", trk.test_stat(), trk.carrier_freq_hz()).green());
-										}										
+									let mut new_subframes:usize = 0;
+									for b in decoded_bits {
+										if let Some(sf) = pac.apply(b) {
+											subframes.push(sf);
+											new_subframes += 1;
+										}
 									}
+
+									eprintln!("{:6.1} [sec] PRN {:02} {}", (s.idx as f64)/fs, prn, format!("TRK OK: {:.8}, {:.1} [Hz], {} new subframe(s)", trk.test_stat(), trk.carrier_freq_hz(), new_subframes).green());
 									
-									bits.append(&mut decoded_bits);
 									None
 								},
 								None => {
@@ -182,6 +181,6 @@ fn main() {
 
 	}
 
-	println!("{}", serde_json::to_string_pretty(&bits).unwrap());
+	println!("{}", serde_json::to_string_pretty(&subframes).unwrap());
 
 }

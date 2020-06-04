@@ -4,7 +4,7 @@ const CRC_24Q_POLYNOMIAL:[bool; 25] = [true, true, false, false, false, false, t
 
 fn main() {
 
-	let subframe:Vec<bool> = vec![true,  false,  false,  false,  true,  false,  true,  true,  false,  false,  true,  true,  true,  true,  false,  true,  true,  true,  true,  false,
+	let mut message_w_crc:Vec<bool> = vec![true,  false,  false,  false,  true,  false,  true,  true,  false,  false,  true,  true,  true,  true,  false,  true,  true,  true,  true,  false,
   		true,  false,  true,  false,  false,  false,  true,  true,  false,  true,  true,  false,  false,  true,  true,  true,  false,  false,  true,  false,  true,  true,  true,
   		true,  false,  false,  true,  false,  true,  true,  true,  false,  true,  true,  false,  false,  true,  true,  true,  true,  true,  true,  false,  true,  false,  false,
   		false,  true,  false,  true,  false,  true,  true,  true,  false,  false,  false,  false,  true,  false,  true,  false,  false,  true,  true,  true,  true,  false,  false,
@@ -19,7 +19,17 @@ fn main() {
   		false,  true,  true,  true,  true,  false,  true,  true,  true,  false,  false,  true,  false,  true,  true,  true,  false,  true,  false,  false,  true,  false,  true,  
   		true,  false,  false,  true,  false];
 
-  	println!("polynomial length {:?}", CRC_24Q_POLYNOMIAL.len());
-  	println!("subframe length: {:?}", subframe.len());
+  	for i in 0..(message_w_crc.len() - CRC_24Q_POLYNOMIAL.len() + 1) {
+  		if message_w_crc[i] {
+  			for j in 0..CRC_24Q_POLYNOMIAL.len() {
+  				message_w_crc[i+j] = message_w_crc[i+j] ^ CRC_24Q_POLYNOMIAL[j];
+  			}
+  		}
+  	}
 
+  	for b in message_w_crc {
+  		assert!(!b);
+  	}
+
+  	println!("CRC Ok");
 }

@@ -74,9 +74,9 @@ impl PreambleDetector {
 			}
 
 			if possible_pos_locs.len() == 1 && possible_neg_locs.len() == 0 {
-				Ok(Some((possible_pos_locs[0], 1)))
+				Ok(Some((possible_pos_locs[0],  1)))
 			} else if possible_pos_locs.len() == 0 && possible_neg_locs.len() == 1 {
-				Ok(Some((possible_neg_locs[0], 1)))
+				Ok(Some((possible_neg_locs[0], -1)))
 			} else if possible_pos_locs.len() == 0 && possible_neg_locs.len() == 0 {
 				Err(DigSigProcErr::InvalidTelemetryData("No possible preamble locations found"))
 			} else {

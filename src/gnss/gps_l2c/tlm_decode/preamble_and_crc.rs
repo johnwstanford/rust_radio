@@ -31,16 +31,22 @@ impl PreambleAndCrc {
 				if self.buffer.len() == 300 {
 					// See if this is a valid preamble + CRC
 					if self.buffer[0..8] == [true, false, false, false, true, false, true, true] && error_detection::is_subframe_crc_ok(&self.buffer) {
+						// eprintln!("Normal preamble detected and CRC OK");
 						let msg:Vec<bool> = self.buffer.drain(..).take(276).collect();
 						(Some(State::Valid{ is_inverse: false }), Some(msg))
 					}
 					else if self.buffer[0..8] == [false, true, true, true, false, true, false, false] {
 						let mut inverse_buffer:Vec<bool> = self.buffer.drain(..).map(|x| !x).collect();
+						// eprintln!("Inverse preamble detected, inverted to {:?}", inverse_buffer);
 						if error_detection::is_subframe_crc_ok(&inverse_buffer) {
+							// eprintln!("CRC OK");
 							let msg:Vec<bool> = inverse_buffer.drain(..).take(276).collect();
 							(Some(State::Valid{ is_inverse: true }), Some(msg))	
 						}
-						else { (None, None) }
+						else { 
+							// eprintln!("CRC not OK");
+							(None, None) 
+						}
 					}
 					else { (None, None) }
 				} else { (None, None) }
@@ -54,6 +60,7 @@ impl PreambleAndCrc {
 						(None, Some(msg))
 					} else {
 						// We failed the CRC check, so go back to the initial state and start over
+						// eprintln!("Failed CRC check, going back to initial state");
 						(Some(State::Initial), None)
 					}
 				} else {

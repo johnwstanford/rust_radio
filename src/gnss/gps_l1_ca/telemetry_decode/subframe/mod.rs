@@ -33,8 +33,8 @@ impl Subframe {
 }
 
 pub fn decode(bits:[bool; 240]) -> Result<Subframe, DigSigProcErr> {
-	let time_of_week_truncated:u32 = bools_to_int::bool_slice_to_u32(&bits[24..41]);
-	let subframe_id:u8 = bools_to_int::bool_slice_to_u8(&bits[43..46]);
+	let time_of_week_truncated:u32 = bools_to_int::to_u32(&bits[24..41]);
+	let subframe_id:u8 = bools_to_int::to_u8(&bits[43..46]);
 
 	let body = match subframe_id {
 		1 => SubframeBody::Subframe1(subframe1::Body::new(&bits)?),

@@ -45,6 +45,15 @@ pub fn to_u32(bools:&[bool]) -> Result<u32, DigSigProcErr> {
     }
 }
 
+pub fn to_u64(bools:&[bool]) -> Result<u64, DigSigProcErr> {
+    let n = bools.len();
+    if n <= 64 {
+    	Ok((0..n).filter(|i| bools[*i]).map(|i| 2u64.pow((n-i-1) as u32)).fold(0u64, |acc, x| acc+x))	
+    } else {
+    	Err(DigSigProcErr::InvalidTelemetryData("x.len() > 64 in bools_to_int::to_u64"))
+    }
+}
+
 pub fn to_i8(bools:&[bool]) -> Result<i8, DigSigProcErr> {
     let n = bools.len();
     if n <= 8 {
@@ -72,6 +81,16 @@ pub fn to_i32(bools:&[bool]) -> Result<i32, DigSigProcErr> {
 	    else        { Ok((1..n).filter(|i|  bools[*i]).map(|i| 2i32.pow((n-i-1) as u32)).fold(0i32, |acc, x| acc+x))        }
     } else {
     	Err(DigSigProcErr::InvalidTelemetryData("x.len() > 32 in bools_to_int::to_i32"))
+    }
+}
+
+pub fn to_i64(bools:&[bool]) -> Result<i64, DigSigProcErr> {
+    let n = bools.len();
+    if n <= 64 {
+	    if bools[0] { Ok((1..n).filter(|i| !bools[*i]).map(|i| 2i64.pow((n-i-1) as u32)).fold(0i64, |acc, x| acc+x) * -1i64) }
+	    else        { Ok((1..n).filter(|i|  bools[*i]).map(|i| 2i64.pow((n-i-1) as u32)).fold(0i64, |acc, x| acc+x))        }
+    } else {
+    	Err(DigSigProcErr::InvalidTelemetryData("x.len() > 64 in bools_to_int::to_i64"))
     }
 }
 

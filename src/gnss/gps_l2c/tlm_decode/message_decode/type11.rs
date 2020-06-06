@@ -6,7 +6,7 @@ use crate::DigSigProcErr;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Body {
-	t_oe: f64	
+	t_oe: u32	
 }
 
 impl Body {
@@ -14,7 +14,7 @@ impl Body {
 	pub fn new(bits:&[bool]) -> Result<Self, DigSigProcErr> {
 		if bits.len() == 238 {
 			// Scale factors given in IS-GPS-200K, Table 30-I
-			let t_oe = (bools_to_int::to_u16(&bits[0..11])? as f64) * 300.0;
+			let t_oe = (bools_to_int::to_u16(&bits[0..11])? as u32) * 300u32;
 
 			Ok(Self{ t_oe })
 

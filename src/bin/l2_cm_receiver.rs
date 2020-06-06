@@ -12,12 +12,12 @@ use colored::*;
 use rust_radio::{io, Sample};
 use rust_radio::gnss::common::acquisition::{Acquisition, two_stage_pcps};
 use rust_radio::gnss::gps_l2c::{signal_modulation, L2_CM_PERIOD_SEC};
-use rust_radio::gnss::gps_l2c::tlm_decode::{error_correction, preamble_and_crc};
+use rust_radio::gnss::gps_l2c::tlm_decode::{error_correction, preamble_and_crc, message_decode};
 use rust_radio::gnss::gps_l2c::tracking_cm::{self, TrackingResult};
 use rustfft::num_complex::Complex;
 
 const MAX_ACQ_TRIES_SAMPLES:usize = 2000000;
-const FEC_DECODE_LEN:usize = 1800;
+const FEC_DECODE_LEN:usize = 300;
 
 #[derive(Debug)]
 enum ChannelState {
@@ -83,7 +83,7 @@ fn main() {
 	let mut state = ChannelState::Acquisition(0);
 
 	let mut symbols:Vec<bool> = vec![];
-	let mut subframes:Vec<Vec<bool>> = vec![];
+	let mut messages:Vec<message_decode::Message> = vec![];
 
 	'outer: for s in io::file_source_i16_complex(&fname).map(|(x, idx)| Sample{ val: Complex{ re: x.0 as f64, im: x.1 as f64 }, idx}) {
 
@@ -130,15 +130,20 @@ fn main() {
 							match opt_decoded_bits {
 								Some(decoded_bits) => {
 									
-									let mut new_subframes:usize = 0;
 									for b in decoded_bits {
-										if let Some(sf) = pac.apply(b) {
-											subframes.push(sf);
-											new_subframes += 1;
+										if let Some(msg_bits) = pac.apply(b) {
+											// This set of bits passed the preamble and CRC check, so decode them as a message
+											match message_decode::Message::new(&msg_bits) {
+												Ok(msg) => {
+													eprintln!("{:6.1} [sec] PRN {:02} {}", (s.idx as f64)/fs, prn, format!("New MSG: {:?}", msg).blue());
+													messages.push(msg)
+												},
+												Err(e)  => eprintln!("{:6.1} [sec] PRN {:02} {}", (s.idx as f64)/fs, prn, format!("MSG Decode Err: {:?}", e).red())
+											}
 										}
 									}
 
-									eprintln!("{:6.1} [sec] PRN {:02} {}", (s.idx as f64)/fs, prn, format!("TRK OK: {:.8}, {:.1} [Hz], {} new subframe(s)", trk.test_stat(), trk.carrier_freq_hz(), new_subframes).green());
+									eprintln!("{:6.1} [sec] PRN {:02} {}", (s.idx as f64)/fs, prn, format!("TRK OK: {:.8}, {:.1} [Hz]", trk.test_stat(), trk.carrier_freq_hz()).green());
 									
 									None
 								},
@@ -178,9 +183,8 @@ fn main() {
 			state = next_state;
 		}
 
-
 	}
 
-	println!("{}", serde_json::to_string_pretty(&subframes).unwrap());
+	println!("{}", serde_json::to_string_pretty(&messages).unwrap());
 
 }

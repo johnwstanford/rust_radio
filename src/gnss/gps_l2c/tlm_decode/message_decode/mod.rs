@@ -17,11 +17,13 @@ pub struct Message {
 pub enum MessageBody {
 	Type10(type10::Body),
 	Type11(type11::Body),
+	Type30(type30::Body),
 	Unknown
 }
 
 pub mod type10;
 pub mod type11;
+pub mod type30;
 
 impl Message {
 
@@ -35,6 +37,7 @@ impl Message {
 			let body = match type_id {
 				10 => MessageBody::Type10(type10::Body::new(&bits[38..])?),
 				11 => MessageBody::Type11(type11::Body::new(&bits[38..])?),
+				30 => MessageBody::Type30(type30::Body::new(&bits[38..])?),
 				_  => MessageBody::Unknown,
 			};
 			Ok(Self{ prn, type_id, time_of_week_truncated, alert_flag, body })

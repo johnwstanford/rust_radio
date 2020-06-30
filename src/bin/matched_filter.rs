@@ -67,7 +67,7 @@ fn main() -> Result<(), &'static str> {
 		spec.filter[(idx as usize) % spec.filter.len()]
 	}).collect();
 
-	let mut mf = matched_filter::MatchedFilter::new(resampled_matched_filter, fs, 0.0, vec![0.0, 2275.0, 2325.0]);
+	let mut mf = matched_filter::MatchedFilter::new(resampled_matched_filter, fs, 2275.0);
 
 	for s in io::file_source_i16_complex(&fname).map(|(x, idx)| Sample{ val: Complex{ re: x.0 as f64, im: x.1 as f64 }, idx }) {
 

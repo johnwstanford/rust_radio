@@ -71,22 +71,20 @@ fn main() -> Result<(), &'static str> {
 
 	for s in io::file_source_i16_complex(&fname).map(|(x, idx)| Sample{ val: Complex{ re: x.0 as f64, im: x.1 as f64 }, idx }) {
 
-		mf.provide_sample(&s).unwrap();
-			match mf.block_for_result() {
-				Ok(Some(result)) => {
+		match mf.apply(&s) {
+			Some(result) => {
 
-					let result_str = format!("{:9.2} [Hz], {:6} [chips], {:.8}, {:8.2} [radians]", result.doppler_hz, result.code_phase, result.test_statistic(), result.mf_response.arg());
-					let time:f64 = s.idx as f64 / fs;
-					if result.test_statistic() < 0.01 {
-						eprintln!("{:6.2} [sec] {}", time, result_str.yellow());
-					} else {
-						eprintln!("{:6.2} [sec] {}", time, result_str.green());
-					}
+				let result_str = format!("{:9.2} [Hz], {:6} [chips], {:.8}, {:8.2} [radians]", result.doppler_hz, result.code_phase, result.test_statistic(), result.mf_response.arg());
+				let time:f64 = s.idx as f64 / fs;
+				if result.test_statistic() < 0.01 {
+					eprintln!("{:6.2} [sec] {}", time, result_str.yellow());
+				} else {
+					eprintln!("{:6.2} [sec] {}", time, result_str.green());
+				}
 
-				},
-				Err(msg) => eprintln!("Error, {}", msg),
-				Ok(None) => {},
-			}
+			},
+			None => {},
+		}
 
 	}
 

@@ -24,15 +24,22 @@ impl MatchedFilterResult {
 }
 
 pub struct MatchedFilter {
+	// Specified during struct creation
 	pub fs:f64, pub freq_shift:f64,
-	pub buffer:Vec<Complex<f64>>,
+
+	// Derived from arguments to struct creation that remain constant after being calculated once
 	pub len_fft:usize,
-	pub fft:Arc<dyn FFT<f64>>,
+	pub phase_step_rad:f64,
 	pub symbol_freq_domain:Vec<Complex<f64>>,
+
+	// Updated on every sample
+	pub buffer:Vec<Complex<f64>>,
+
+	// Used once the buffer is full
+	pub fft:Arc<dyn FFT<f64>>,
 	pub fft_out:  Vec<Complex<f64>>,
 	pub ifft:Arc<dyn FFT<f64>>,
 	pub ifft_out: Vec<Complex<f64>>,
-	pub last_sample_idx: usize,
 }
 
 impl MatchedFilter {
@@ -40,6 +47,7 @@ impl MatchedFilter {
 	pub fn new(symbol:Vec<i8>, fs:f64, freq_shift:f64) -> Self {
 
 		let len_fft:usize = symbol.len();
+		let phase_step_rad:f64 = (-2.0 * consts::PI * freq_shift) / fs;
 
 		// Forward FFT
 		let mut symbol_time_domain: Vec<Complex<f64>> = symbol.into_iter().map(|b| Complex{ re: b as f64, im: 0.0 }).collect();
@@ -56,37 +64,27 @@ impl MatchedFilter {
 		let mut ifft_out: Vec<Complex<f64>> = vec![Complex::zero(); len_fft];
 		ifft.process(&mut fft_out, &mut ifft_out);
 
-		let buffer:Vec<Complex<f64>> = vec![Complex::zero()];	// Because we're starting last_sample_idx at zero
+		let buffer:Vec<Complex<f64>> = vec![];
 
-		Self { fs, freq_shift,
-			buffer, len_fft, fft, symbol_freq_domain, fft_out, ifft, ifft_out,
-			last_sample_idx: 0 }
+		Self { fs, freq_shift, len_fft, phase_step_rad, symbol_freq_domain, buffer, fft, fft_out, ifft, ifft_out}
 	}
 
-	pub fn provide_sample(&mut self, sample:&Sample) -> Result<(), &str> {
-		if sample.idx > self.last_sample_idx {
-			self.buffer.push(sample.val);
-			self.last_sample_idx = sample.idx;
-		}
-		Ok(())
-	}
+	pub fn apply(&mut self, sample:&Sample) -> Option<MatchedFilterResult> {
+		self.buffer.push(sample.val);
 
-	pub fn block_for_result(&mut self) -> Result<Option<MatchedFilterResult>, &str> {
 		if self.buffer.len() >= self.len_fft {
 
 			let signal:Vec<Complex<f64>> = self.buffer.drain(..self.len_fft).collect();
 
-			// Try acquiring an SV
 			let input_power_total:f64 = signal.iter().map(|c| c.re*c.re + c.im*c.im).sum();
 
 			let mut best_match = MatchedFilterResult{ doppler_hz: self.freq_shift, code_phase: 0, mf_response: Complex{re: 0.0, im: 0.0}, 
 				mf_len: self.len_fft, input_power_total };
 
 			// Wipe the carrier off the input signal
-			let phase_step_rad:f64 = (-2.0 * consts::PI * self.freq_shift) / self.fs;	// TODO: cache on struct creation
 			let mut doppler_wiped_time_domain:Vec<Complex<f64>> = (0..(signal.len()))
 				.map(|idx| {
-					let phase = phase_step_rad * (idx as f64);
+					let phase = self.phase_step_rad * (idx as f64);
 					signal[idx] * Complex{ re: phase.cos(), im: phase.sin() }
 				}).collect();
 
@@ -114,12 +112,11 @@ impl MatchedFilter {
 
 			}
 
-			// Return the best match if it meets the threshold
-			Ok(Some(best_match))
+			Some(best_match)
 
 		} else {
 			// Buffer isn't full yet, so there's no result to return
-			Ok(None)
+			None
 		}
 
 	}

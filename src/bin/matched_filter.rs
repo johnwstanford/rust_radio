@@ -5,7 +5,7 @@ use std::io::BufReader;
 use clap::{Arg, App};
 use colored::*;
 use rust_radio::{io, Sample};
-use rust_radio::gnss::common::acquisition::{self, Acquisition};
+use rust_radio::filters::matched_filter;
 use rustfft::num_complex::Complex;
 use serde::{Serialize, Deserialize};
 
@@ -67,12 +67,12 @@ fn main() -> Result<(), &'static str> {
 		spec.filter[(idx as usize) % spec.filter.len()]
 	}).collect();
 
-	let mut acq = acquisition::make_acquisition(resampled_matched_filter, fs, 10, 9, 17, 0.0, 0);
+	let mut mf = matched_filter::MatchedFilter::new(resampled_matched_filter, fs, 0.0, vec![0.0, 2275.0, 2325.0]);
 
 	for s in io::file_source_i16_complex(&fname).map(|(x, idx)| Sample{ val: Complex{ re: x.0 as f64, im: x.1 as f64 }, idx }) {
 
-		acq.provide_sample(&s).unwrap();
-			match acq.block_for_result() {
+		mf.provide_sample(&s).unwrap();
+			match mf.block_for_result() {
 				Ok(Some(result)) => {
 
 					let result_str = format!("{:9.2} [Hz], {:6} [chips], {:.8}, {:8.2} [radians]", result.doppler_hz, result.code_phase, result.test_statistic(), result.mf_response.arg());

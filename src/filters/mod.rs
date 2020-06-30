@@ -1,4 +1,6 @@
 
+pub mod matched_filter;
+
 pub trait ScalarFilter {
 
 	fn apply(&mut self, x:f64) -> f64;

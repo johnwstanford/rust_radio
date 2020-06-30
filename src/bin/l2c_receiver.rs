@@ -15,10 +15,12 @@ use rust_radio::gnss::gps_l2c::{signal_modulation, L2_CM_PERIOD_SEC, L2_CL_PERIO
 use rust_radio::gnss::gps_l2c::tracking_cl::{self, TrackingResult};
 use rustfft::num_complex::Complex;
 
+const MAX_ACQ_TRIES_SAMPLES:usize = 2000000;
+
 #[derive(Debug)]
 enum ChannelState {
-	AcquisitionCM,
-	AcquisitionCL,
+	AcquisitionCM(usize),
+	AcquisitionCL(usize),
 	PullIn(usize),
 	Tracking,
 }
@@ -40,6 +42,9 @@ fn main() {
 		.arg(Arg::with_name("sample_rate_sps")
 			.short("s").long("sample_rate_sps")
 			.takes_value(true).required(true))
+		.arg(Arg::with_name("prn")
+			.long("prn")
+			.takes_value(true).required(true))
 		.get_matches();
 
 	let fname:&str = matches.value_of("filename").unwrap();
@@ -47,7 +52,7 @@ fn main() {
 
 	eprintln!("Decoding {} at {} [samples/sec]", &fname, &fs);
 
-	let prn = 6;
+	let prn:usize = matches.value_of("prn").unwrap().parse().unwrap();
 
 	// Just track one SV for now and create channels in parallel once we know this works
 	let mut acq_cm: two_stage_pcps::Acquisition = {
@@ -85,7 +90,7 @@ fn main() {
 	};
 
 	let mut trk = tracking_cl::new_default_tracker(prn, 0.0, fs);
-	let mut state = ChannelState::AcquisitionCM;
+	let mut state = ChannelState::AcquisitionCM(0);
 
 	let mut bits:Vec<(f64, usize)> = vec![];
 
@@ -95,7 +100,11 @@ fn main() {
 	'outer: for s in io::file_source_i16_complex(&fname).map(|(x, idx)| Sample{ val: Complex{ re: x.0 as f64, im: x.1 as f64 }, idx}) {
 
 		let opt_next_state:Option<ChannelState> = match state {
-			ChannelState::AcquisitionCM => {
+			ChannelState::AcquisitionCM(mut num_tries_so_far) => {
+
+				if num_tries_so_far > MAX_ACQ_TRIES_SAMPLES { break 'outer; }
+				else { num_tries_so_far += 1; }
+
 				acq_cm.provide_sample(&s).unwrap();
 
 				match acq_cm.block_for_result() {
@@ -108,7 +117,7 @@ fn main() {
 						acq_cl.doppler_freqs = vec![ctr - (1.2*step), ctr - (0.9*step), ctr - (0.6*step), ctr - (0.3*step), ctr, 
 							ctr + (0.3*step), ctr + (0.6*step), ctr + (0.9*step), ctr + (1.2*step)];
 
-						Some(ChannelState::AcquisitionCL)
+						Some(ChannelState::AcquisitionCL(0))
 						
 					},
 					Err(msg) => {
@@ -119,7 +128,11 @@ fn main() {
 				}
 
 			},
-			ChannelState::AcquisitionCL => {
+			ChannelState::AcquisitionCL(mut num_tries_so_far) => {
+
+				if num_tries_so_far > MAX_ACQ_TRIES_SAMPLES { break 'outer; }
+				else { num_tries_so_far += 1; }
+
 				acq_cl.provide_sample(&s).unwrap();
 
 				match acq_cl.block_for_result() {

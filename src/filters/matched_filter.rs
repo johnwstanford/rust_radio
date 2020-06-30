@@ -29,11 +29,12 @@ pub struct MatchedFilter {
 
 	// Derived from arguments to struct creation that remain constant after being calculated once
 	pub len_fft:usize,
-	pub phase_step_rad:f64,
+	pub carrier_inc:Complex<f64>,
 	pub symbol_freq_domain:Vec<Complex<f64>>,
 
 	// Updated on every sample
 	pub buffer:Vec<Complex<f64>>,
+	pub carrier:Complex<f64>,
 
 	// Used once the buffer is full
 	pub fft:Arc<dyn FFT<f64>>,
@@ -48,6 +49,7 @@ impl MatchedFilter {
 
 		let len_fft:usize = symbol.len();
 		let phase_step_rad:f64 = (-2.0 * consts::PI * freq_shift) / fs;
+		let carrier_inc = Complex{ re: phase_step_rad.cos(), im: phase_step_rad.sin() };
 
 		// Forward FFT
 		let mut symbol_time_domain: Vec<Complex<f64>> = symbol.into_iter().map(|b| Complex{ re: b as f64, im: 0.0 }).collect();
@@ -65,31 +67,27 @@ impl MatchedFilter {
 		ifft.process(&mut fft_out, &mut ifft_out);
 
 		let buffer:Vec<Complex<f64>> = vec![];
+		let carrier = Complex{ re: 1.0, im: 0.0 };
 
-		Self { fs, freq_shift, len_fft, phase_step_rad, symbol_freq_domain, buffer, fft, fft_out, ifft, ifft_out}
+		Self { fs, freq_shift, len_fft, carrier_inc, symbol_freq_domain, buffer, carrier, fft, fft_out, ifft, ifft_out}
 	}
 
 	pub fn apply(&mut self, sample:&Sample) -> Option<MatchedFilterResult> {
-		self.buffer.push(sample.val);
+		self.buffer.push(sample.val * self.carrier);
+		self.carrier = self.carrier * self.carrier_inc;
 
 		if self.buffer.len() >= self.len_fft {
 
-			let signal:Vec<Complex<f64>> = self.buffer.drain(..self.len_fft).collect();
+			// Normalize carrier
+			self.carrier = self.carrier / self.carrier.norm();
+
+			// Drain signal from buffer and find total power
+			let mut signal:Vec<Complex<f64>> = self.buffer.drain(..self.len_fft).collect();
 
 			let input_power_total:f64 = signal.iter().map(|c| c.re*c.re + c.im*c.im).sum();
 
-			let mut best_match = MatchedFilterResult{ doppler_hz: self.freq_shift, code_phase: 0, mf_response: Complex{re: 0.0, im: 0.0}, 
-				mf_len: self.len_fft, input_power_total };
-
-			// Wipe the carrier off the input signal
-			let mut doppler_wiped_time_domain:Vec<Complex<f64>> = (0..(signal.len()))
-				.map(|idx| {
-					let phase = self.phase_step_rad * (idx as f64);
-					signal[idx] * Complex{ re: phase.cos(), im: phase.sin() }
-				}).collect();
-
 			// Run the forward FFT
-			self.fft.process(&mut doppler_wiped_time_domain, &mut self.fft_out);
+			self.fft.process(&mut signal, &mut self.fft_out);
 
 			// Perform multiplication in the freq domain, which is convolution in the time domain
 			let mut convolution_freq_domain:Vec<Complex<f64>> = (&self.fft_out).into_iter()
@@ -101,7 +99,10 @@ impl MatchedFilter {
 			self.ifft.process(&mut convolution_freq_domain, &mut self.ifft_out);
 			self.ifft_out = self.ifft_out.iter().map(|c| c / (self.len_fft as f64)).collect();
 
-			// Find the best result from this frequency
+			// Find the best result
+			let mut best_match = MatchedFilterResult{ doppler_hz: self.freq_shift, code_phase: 0, mf_response: Complex{re: 0.0, im: 0.0}, 
+				mf_len: self.len_fft, input_power_total };
+
 			for (idx, mf_response) in (&self.ifft_out).into_iter().enumerate() {
 
 				// Compare the best result from this frequency to the best result overall

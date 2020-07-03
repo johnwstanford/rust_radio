@@ -27,10 +27,17 @@ fn main() -> Result<(), &'static str> {
 			.short("f").long("filename")
 			.help("Input filename")
 			.required(true).takes_value(true))
+		.arg(Arg::with_name("output_filename")
+			.short("o").long("output_filename")
+			.help("Output filename")
+			.takes_value(true))
 		.arg(Arg::with_name("input_type")
 			.short("t").long("type")
 			.takes_value(true)
 			.possible_value("i16"))
+		.arg(Arg::with_name("freq_shift")
+			.short("q").long("freq_shift")
+			.takes_value(true))
 		.arg(Arg::with_name("sample_rate_sps")
 			.short("s").long("sample_rate_sps")
 			.takes_value(true).required(true))
@@ -50,10 +57,12 @@ fn main() -> Result<(), &'static str> {
 		let reader = BufReader::new(file);
 		serde_json::from_reader(reader).map_err(|_| "Unable to parse JSON specification")?
 	};
+	let freq_shift:f64 = matches.value_of("freq_shift").unwrap_or("0.0").parse().map_err(|_| "Unable to parse frequency shift")?;
 	println!("{:?}", spec);
 
-	// TODO: make the name of the output file configurable
-	let mut f_out = File::create("output.dat").map_err(|_| "Unable to create output file")?;
+	// Open output file
+	let mut f_out = File::create(matches.value_of("output_filename").unwrap_or("output.dat"))
+		.map_err(|_| "Unable to create output file")?;
 
 	let (filter_length_sec, filter_sample_rate_sps) = match (spec.filter_length_sec, spec.filter_sample_rate_sps) {
 		(Some(filter_length_sec), None) => 
@@ -72,7 +81,7 @@ fn main() -> Result<(), &'static str> {
 		spec.filter[(idx as usize) % spec.filter.len()]
 	}).collect();
 
-	let mut mf = matched_filter::MatchedFilter::new(resampled_matched_filter, fs, 7250.0);
+	let mut mf = matched_filter::MatchedFilter::new(resampled_matched_filter, fs, freq_shift);
 
 	for s in io::file_source_i16_complex(&fname).map(|(x, idx)| Sample{ val: Complex{ re: x.0 as f64, im: x.1 as f64 }, idx }) {
 

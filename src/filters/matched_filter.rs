@@ -11,15 +11,25 @@ use crate::Sample;
 
 pub struct MatchedFilterResult {
 	pub doppler_hz:f64,
-	pub code_phase:usize,
-	pub mf_response:Complex<f64>,
-	pub mf_len:usize,
-	pub input_power_total:f64
+	pub input_power_total:f64,
+	pub response:Vec<Complex<f64>>
+}
+
+pub struct MatchedFilterTestStatResult {
+	pub max_idx:usize,
+	pub test_stat:f64,
 }
 
 impl MatchedFilterResult {
 
-	pub fn test_statistic(&self) -> f64 { self.mf_response.norm_sqr() / (self.input_power_total * (self.mf_len as f64)) }
+	pub fn test_statistic(&self) -> MatchedFilterTestStatResult { 
+		// Find the best result
+		let (max_idx, max_response) = (&self.response).into_iter().enumerate().max_by_key(|(_, resp)| (resp.norm_sqr() * 10000.0) as usize ).unwrap();
+
+		let test_stat:f64 = max_response.norm_sqr() / (self.input_power_total * (self.response.len() as f64));
+
+		MatchedFilterTestStatResult{ max_idx, test_stat }
+	}
 
 }
 
@@ -97,23 +107,14 @@ impl MatchedFilter {
 
 			// Run the inverse FFT to get correlation in the time domain
 			self.ifft.process(&mut convolution_freq_domain, &mut self.ifft_out);
-			self.ifft_out = self.ifft_out.iter().map(|c| c / (self.len_fft as f64)).collect();
+			
+			let ans = MatchedFilterResult {
+				response: self.ifft_out.iter().map(|c| c / (self.len_fft as f64)).collect(),
+				doppler_hz: self.freq_shift,
+				input_power_total
+			};
 
-			// Find the best result
-			let mut best_match = MatchedFilterResult{ doppler_hz: self.freq_shift, code_phase: 0, mf_response: Complex{re: 0.0, im: 0.0}, 
-				mf_len: self.len_fft, input_power_total };
-
-			for (idx, mf_response) in (&self.ifft_out).into_iter().enumerate() {
-
-				// Compare the best result from this frequency to the best result overall
-				if best_match.mf_response.norm_sqr() < mf_response.norm_sqr() {
-					best_match.code_phase  = idx;
-					best_match.mf_response = *mf_response;
-				}
-
-			}
-
-			Some(best_match)
+			Some(ans)
 
 		} else {
 			// Buffer isn't full yet, so there's no result to return

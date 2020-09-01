@@ -7,6 +7,8 @@ use rustfft::FFTplanner;
 use rustfft::num_complex::Complex;
 use rustfft::num_traits::Zero;
 
+use serde::{Serialize, Deserialize};
+
 use crate::Sample;
 
 pub struct MatchedFilterResult {
@@ -15,6 +17,7 @@ pub struct MatchedFilterResult {
 	pub response:Vec<Complex<f64>>
 }
 
+#[derive(Serialize, Deserialize)]
 pub struct MatchedFilterTestStatResult {
 	pub max_idx:usize,
 	pub test_stat:f64,

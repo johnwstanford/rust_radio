@@ -2,11 +2,11 @@
 use std::fs::File;
 use std::io::BufReader;
 
-use byteorder::{LittleEndian, WriteBytesExt};
+// use byteorder::{LittleEndian, WriteBytesExt};
 use clap::{Arg, App};
 use colored::*;
 use rust_radio::{io, Sample};
-use rust_radio::filters::matched_filter;
+use rust_radio::filters::matched_filter::{self, MatchedFilterTestStatResult};
 use rustfft::num_complex::Complex;
 use serde::{Serialize, Deserialize};
 
@@ -58,11 +58,10 @@ fn main() -> Result<(), &'static str> {
 		serde_json::from_reader(reader).map_err(|_| "Unable to parse JSON specification")?
 	};
 	let freq_shift:f64 = matches.value_of("freq_shift").unwrap_or("0.0").parse().map_err(|_| "Unable to parse frequency shift")?;
-	println!("{:?}", spec);
 
 	// Open output file
-	let mut f_out = File::create(matches.value_of("output_filename").unwrap_or("output.dat"))
-		.map_err(|_| "Unable to create output file")?;
+	// let mut f_out = File::create(matches.value_of("output_filename").unwrap_or("output.dat"))
+	// 	.map_err(|_| "Unable to create output file")?;
 
 	let (filter_length_sec, filter_sample_rate_sps) = match (spec.filter_length_sec, spec.filter_sample_rate_sps) {
 		(Some(filter_length_sec), None) => 
@@ -83,31 +82,37 @@ fn main() -> Result<(), &'static str> {
 
 	let mut mf = matched_filter::MatchedFilter::new(resampled_matched_filter, fs, freq_shift);
 
+	let mut results:Vec<(f64, MatchedFilterTestStatResult)> = vec![];
 	for s in io::file_source_i16_complex(&fname).map(|(x, idx)| Sample{ val: Complex{ re: x.0 as f64, im: x.1 as f64 }, idx }) {
 
 		match mf.apply(&s) {
 			Some(result) => {
 
-				for c in &result.response {
-					f_out.write_f32::<LittleEndian>(c.re as f32).map_err(|_| "Unable to write to file")?;
-					f_out.write_f32::<LittleEndian>(c.im as f32).map_err(|_| "Unable to write to file")?;
-				}
+				// for c in &result.response {
+				// 	f_out.write_f32::<LittleEndian>(c.re as f32).map_err(|_| "Unable to write to file")?;
+				// 	f_out.write_f32::<LittleEndian>(c.im as f32).map_err(|_| "Unable to write to file")?;
+				// }
 
 				let result_test_stat = result.test_statistic();
 
 				let result_str = format!("{:9.2} [Hz], {:6} [chips], {:.8}", result.doppler_hz, result_test_stat.max_idx, result_test_stat.test_stat);
-				let time:f64 = s.idx as f64 / fs;
+				let t:f64 = s.idx as f64 / fs;
 				if result_test_stat.test_stat < 0.01 {
-					eprintln!("{:6.2} [sec] {}", time, result_str.yellow());
+					eprintln!("{:6.2} [sec] {}", t, result_str.yellow());
 				} else {
-					eprintln!("{:6.2} [sec] {}", time, result_str.green());
+					eprintln!("{:6.2} [sec] {}", t, result_str.green());
 				}
+
+				results.push((t, result_test_stat))
 
 			},
 			None => {},
 		}
 
 	}
+
+	// Output data in JSON format
+	println!("{}", serde_json::to_string_pretty(&results).unwrap());
 
 	Ok(())
 

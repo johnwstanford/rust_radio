@@ -30,24 +30,6 @@ struct SubframeWithMetadata {
 	prn:usize,
 }
 
-// fn parse_comma_sep_floats(opt:Option<&str>, default_a1:f64, default_a2:f64) -> (f64, f64) {
-// 	match opt {
-// 		Some(s) => {
-// 			let coeffs_str:Vec<&str> = s.split(",").collect();
-// 			match (coeffs_str.get(0), coeffs_str.get(1)) {
-// 				(Some(a1_str), Some(a2_str)) => {
-// 					match (a1_str.parse::<f64>(), a2_str.parse::<f64>()) {
-// 						(Ok(a1), Ok(a2)) => (        a1,         a2),
-// 						(_, _)           => (default_a1, default_a2),
-// 					}
-// 				},
-// 				(_, _) => (default_a1, default_a2),
-// 			}
-// 		},
-// 		None => (default_a1, default_a2)
-// 	}
-// }
-
 fn main() {
 
 	let matches = App::new("GPS L1 C/A GPS Subframe Decoder")

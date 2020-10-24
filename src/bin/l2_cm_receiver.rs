@@ -9,7 +9,7 @@ extern crate serde;
 
 use clap::{Arg, App};
 use colored::*;
-use rust_radio::{io, Sample};
+use rust_radio::{io::BufferedFileSource, Sample};
 use rust_radio::gnss::common::acquisition::{Acquisition, two_stage_pcps};
 use rust_radio::gnss::gps_l2c::{signal_modulation, L2_CM_PERIOD_SEC};
 use rust_radio::gnss::gps_l2c::tlm_decode::{error_correction, preamble_and_crc, message_decode};
@@ -85,7 +85,8 @@ fn main() {
 	let mut symbols:Vec<bool> = vec![];
 	let mut messages:Vec<message_decode::Message> = vec![];
 
-	'outer: for s in io::file_source_i16_complex(&fname).map(|(x, idx)| Sample{ val: Complex{ re: x.0 as f64, im: x.1 as f64 }, idx}) {
+	let src:BufferedFileSource<(i16, i16)> = BufferedFileSource::new(&fname).unwrap();
+	'outer: for s in src.map(|(x, idx)| Sample{ val: Complex{ re: x.0 as f64, im: x.1 as f64 }, idx}) {
 
 		let opt_next_state:Option<ChannelState> = match state {
 			ChannelState::Acquisition(num_tries_so_far) => {

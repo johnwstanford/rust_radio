@@ -9,7 +9,7 @@ extern crate serde;
 
 use clap::{Arg, App};
 use colored::*;
-use rust_radio::{io, Sample};
+use rust_radio::{io::BufferedFileSource, Sample};
 use rust_radio::gnss::common::acquisition;
 use rust_radio::gnss::common::acquisition::Acquisition;
 use rust_radio::gnss::common::acquisition::fast_pcps;
@@ -94,7 +94,8 @@ fn main() {
 
 	let mut all_records:Vec<AcquisitionRecord> = vec![];
 
-	for s in io::file_source_i16_complex(&fname).map(|(x, idx)| Sample{ val: Complex{ re: x.0 as f64, im: x.1 as f64 }, idx}) {
+	let src:BufferedFileSource<(i16, i16)> = BufferedFileSource::new(&fname).unwrap();
+	for s in src.map(|(x, idx)| Sample{ val: Complex{ re: x.0 as f64, im: x.1 as f64 }, idx}) {
 
 		for (acq_cm, acq_cl) in &mut acqs {
 			let prn:usize = acq_cm.prn;

@@ -16,7 +16,7 @@ use clap::{Arg, App};
 use colored::*;
 use regex::Regex;
 use rustfft::num_complex::Complex;
-use rust_radio::{io, Sample};
+use rust_radio::{io::BufferedFileSource, Sample};
 use rust_radio::gnss::gps_l1_ca::{pvt, channel};
 
 const NUM_ACTIVE_CHANNELS:usize = 7;
@@ -60,7 +60,8 @@ fn main() {
 			let mut inactive_channels:VecDeque<channel::DefaultChannel> = (1..=32).map(|prn| channel::new_channel(prn, fs, 0.01)).collect();
 			let mut active_channels:VecDeque<channel::DefaultChannel>   = inactive_channels.drain(..NUM_ACTIVE_CHANNELS).collect();
 
-			for s in io::file_source_i16_complex(&fname).map(|(x, idx)| Sample{ val: Complex{ re: x.0 as f64, im: x.1 as f64 }, idx}) {
+			let src:BufferedFileSource<(i16, i16)> = BufferedFileSource::new(&fname).unwrap();
+			for s in src.map(|(x, idx)| Sample{ val: Complex{ re: x.0 as f64, im: x.1 as f64 }, idx}) {
 
 				for chn in &mut active_channels {
 					match chn.apply(&s) {

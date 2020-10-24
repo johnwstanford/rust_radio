@@ -12,7 +12,7 @@ use std::collections::VecDeque;
 use clap::{Arg, App};
 use colored::*;
 use na::Vector4;
-use rust_radio::{io, Sample};
+use rust_radio::{io::BufferedFileSource, Sample};
 use rust_radio::gnss::gps_l1_ca::{pvt, channel};
 use rust_radio::utils::kinematics;
 use rustfft::num_complex::Complex;
@@ -55,7 +55,8 @@ fn main() {
 	let mut x_master = Vector4::new(0.0, 0.0, 0.0, 0.0);
 	let mut ionosphere:Option<pvt::ionosphere::Model> = None;
 
-	for s in io::file_source_i16_complex(&fname).map(|(x, idx)| Sample{ val: Complex{ re: x.0 as f64, im: x.1 as f64 }, idx }) {
+	let src:BufferedFileSource<(i16, i16)> = BufferedFileSource::new(&fname).unwrap();
+	for s in src.map(|(x, idx)| Sample{ val: Complex{ re: x.0 as f64, im: x.1 as f64 }, idx }) {
 
 		let current_rx_time:f64 = (s.idx as f64 + 0.5) / fs;
 		tow_rcv += 1.0 / fs;

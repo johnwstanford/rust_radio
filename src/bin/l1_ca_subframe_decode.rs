@@ -23,6 +23,7 @@ const NUM_ACTIVE_CHANNELS:usize = 7;
 #[derive(Debug, Serialize, Deserialize)]
 struct SubframeWithMetadata {
 	subframe: SF,
+	sample_idx: usize,
 	acq_carrier_hz:f64,
 	acq_test_stat:f64,
 	trk_carrier_hz:f64,
@@ -74,7 +75,7 @@ fn main() {
 				channel::ChannelResult::Ok{sf:Some(subframe), ..} => {
 		
 					eprintln!("New Subframe: {}", format!("{:?}", subframe).blue());
-					let sf_with_metadata = SubframeWithMetadata{ subframe, 
+					let sf_with_metadata = SubframeWithMetadata{ subframe, sample_idx: s.idx,
 						acq_carrier_hz:    chn.last_acq_doppler(),
 						acq_test_stat:     chn.last_acq_test_stat(),
 						trk_carrier_hz:    chn.carrier_freq_hz(), 

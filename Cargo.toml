@@ -19,3 +19,5 @@ serde = { version = "1.0.60", features = ["derive"] }
 serde_derive = "1.0.115"
 serde_json = "1.0.39"
 
+[dev-dependencies]
+uhd_rs = { git = "https://github.com/johnwstanford/uhd_rs" }

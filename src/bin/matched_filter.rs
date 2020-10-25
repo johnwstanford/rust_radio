@@ -2,10 +2,9 @@
 use std::fs::File;
 use std::io::BufReader;
 
-// use byteorder::{LittleEndian, WriteBytesExt};
 use clap::{Arg, App};
 use colored::*;
-use rust_radio::{io::BufferedFileSource, Sample};
+use rust_radio::{io::BufferedSource, Sample};
 use rust_radio::filters::matched_filter::{self, MatchedFilterTestStatResult};
 use rustfft::num_complex::Complex;
 use serde::{Serialize, Deserialize};
@@ -83,7 +82,7 @@ fn main() -> Result<(), &'static str> {
 	let mut mf = matched_filter::MatchedFilter::new(resampled_matched_filter, fs, freq_shift);
 
 	let mut results:Vec<(f64, MatchedFilterTestStatResult)> = vec![];
-	let src:BufferedFileSource<(i16, i16)> = BufferedFileSource::new(&fname).unwrap();
+	let src:BufferedSource<File, (i16, i16)> = BufferedSource::new(File::open(fname).unwrap()).unwrap();
 	for s in src.map(|(x, idx)| Sample{ val: Complex{ re: x.0 as f64, im: x.1 as f64 }, idx }) {
 
 		match mf.apply(&s) {

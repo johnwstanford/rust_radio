@@ -7,7 +7,10 @@ use rustfft::FFTplanner;
 use rustfft::num_complex::Complex;
 use rustfft::num_traits::Zero;
 
-use crate::Sample;
+use crate::{Sample, DigSigProcErr as DSPErr};
+use crate::block::{BlockFunctionality, BlockResult};
+
+use super::AcquisitionResult;
 
 pub struct Acquisition {
 	pub fs:f64,
@@ -22,6 +25,23 @@ pub struct Acquisition {
 	pub ifft:Arc<dyn FFT<f64>>,
 	pub ifft_out: Vec<Complex<f64>>,
 	pub last_sample_idx: usize,
+}
+
+impl BlockFunctionality<(), (), Sample, AcquisitionResult> for Acquisition {
+
+	fn control(&mut self, _:&()) -> Result<(), &'static str> {
+		Ok(())
+	}
+
+	fn apply(&mut self, input:&Sample) -> BlockResult<AcquisitionResult> {
+		self.provide_sample(input).unwrap();
+		match self.block_for_result() {
+			Ok(Some(result)) => BlockResult::Ready(result),
+			Ok(None)         => BlockResult::NotReady,
+			Err(e)           => BlockResult::Err(e)
+		}
+	}
+
 }
 
 impl Acquisition {
@@ -52,11 +72,7 @@ impl Acquisition {
 			last_sample_idx: 0 }
 	}
 
-}
-
-impl super::Acquisition for Acquisition {
-
-	fn provide_sample(&mut self, sample:&Sample) -> Result<(), &str> {
+	pub fn provide_sample(&mut self, sample:&Sample) -> Result<(), DSPErr> {
 		if sample.idx > self.last_sample_idx {
 			self.buffer.push(sample.val);
 			self.last_sample_idx = sample.idx;
@@ -64,7 +80,7 @@ impl super::Acquisition for Acquisition {
 		Ok(())
 	}
 
-	fn block_for_result(&mut self) -> Result<Option<super::AcquisitionResult>, &str> {
+	pub fn block_for_result(&mut self) -> Result<Option<super::AcquisitionResult>, DSPErr> {
 		if self.buffer.len() >= self.len_fft {
 
 			let signal:Vec<Complex<f64>> = self.buffer.drain(..self.len_fft).collect();
@@ -76,7 +92,8 @@ impl super::Acquisition for Acquisition {
 			// Zero indicates that there is no step because there's only one frequency
 			let doppler_step_hz:f64 = if self.doppler_freqs.len() > 1 { self.doppler_freqs[1] - self.doppler_freqs[0] } else { self.doppler_freqs[0] };
 			
-			let mut best_match = super::AcquisitionResult{ doppler_hz: 0.0, doppler_step_hz, code_phase: 0, mf_response: Complex{re: 0.0, im: 0.0}, 
+			let mut best_match = super::AcquisitionResult{ id: self.prn, sample_idx: self.last_sample_idx,
+				doppler_hz: 0.0, doppler_step_hz, code_phase: 0, mf_response: Complex{re: 0.0, im: 0.0}, 
 				mf_len: self.len_fft, input_power_total };
 
 			// Try every frequency and update best_match every time we find a new best

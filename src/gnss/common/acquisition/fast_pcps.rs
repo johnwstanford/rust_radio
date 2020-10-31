@@ -5,7 +5,10 @@ use std::sync::Arc;
 use rustfft::FFT;
 use rustfft::num_complex::Complex;
 
-use crate::Sample;
+use crate::{Sample, DigSigProcErr as DSPErr};
+use crate::block::{BlockFunctionality, BlockResult};
+
+use super::AcquisitionResult;
 
 pub struct Acquisition {
 	pub fs:f64,
@@ -25,9 +28,26 @@ pub struct Acquisition {
 	pub n_skip:usize,
 }
 
-impl super::Acquisition for Acquisition {
+impl BlockFunctionality<(), (), Sample, AcquisitionResult> for Acquisition {
 
-	fn provide_sample(&mut self, sample:&Sample) -> Result<(), &str> {
+	fn control(&mut self, _:&()) -> Result<(), &'static str> {
+		Ok(())
+	}
+
+	fn apply(&mut self, input:&Sample) -> BlockResult<AcquisitionResult> {
+		self.provide_sample(input).unwrap();
+		match self.block_for_result() {
+			Ok(Some(result)) => BlockResult::Ready(result),
+			Ok(None)         => BlockResult::NotReady,
+			Err(e)           => BlockResult::Err(e)
+		}
+	}
+
+}
+
+impl Acquisition {
+
+	pub fn provide_sample(&mut self, sample:&Sample) -> Result<(), DSPErr> {
 		if sample.idx > self.last_sample_idx {
 			self.buffer.push(sample.val);
 			self.last_sample_idx = sample.idx;
@@ -35,7 +55,7 @@ impl super::Acquisition for Acquisition {
 		Ok(())
 	}
 
-	fn block_for_result(&mut self) -> Result<Option<super::AcquisitionResult>, &str> {
+	pub fn block_for_result(&mut self) -> Result<Option<AcquisitionResult>, DSPErr> {
 		if self.buffer.len() >= self.len_fft {
 			self.skip_count += 1;
 			if self.skip_count > self.n_skip {
@@ -46,7 +66,8 @@ impl super::Acquisition for Acquisition {
 				// Try acquiring an SV
 				let input_power_total:f64 = signal.iter().map(|c| c.re*c.re + c.im*c.im).sum();
 
-				let mut best_match = super::AcquisitionResult{ doppler_hz: 0.0, doppler_step_hz: (self.fast_freq_inc.abs()) / (self.n_fine as f64),
+				let mut best_match = super::AcquisitionResult{  id: self.prn, sample_idx: self.last_sample_idx,
+					doppler_hz: 0.0, doppler_step_hz: (self.fast_freq_inc.abs()) / (self.n_fine as f64),
 					code_phase: 0, mf_response: Complex{re: 0.0, im: 0.0}, mf_len: self.len_fft, input_power_total };
 
 				// Try every frequency and update best_match every time we find a new best

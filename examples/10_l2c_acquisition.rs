@@ -12,10 +12,7 @@ use std::fs::File;
 use clap::{Arg, App};
 use colored::*;
 use rust_radio::{io::BufferedSource, Sample};
-use rust_radio::gnss::common::acquisition;
-use rust_radio::gnss::common::acquisition::Acquisition;
-use rust_radio::gnss::common::acquisition::fast_pcps;
-use rust_radio::gnss::common::acquisition::basic_pcps;
+use rust_radio::gnss::common::acquisition::{self, fast_pcps, basic_pcps};
 use rust_radio::gnss::gps_l2c::signal_modulation;
 use rustfft::num_complex::Complex;
 use serde::{Serialize, Deserialize};
@@ -141,7 +138,7 @@ fn main() {
 
 					all_records.push(record)
 				},
-				Err(msg) => eprintln!("PRN {}: Error, {}", prn, msg),
+				Err(msg) => eprintln!("PRN {}: Error, {:?}", prn, msg),
 				Ok(None) => {},
 			}
 		}

@@ -1,12 +1,19 @@
 
 use std::f64::consts;
 
-use ::rustfft::num_complex::Complex;
+use rustfft::num_complex::Complex;
 
-use crate::{Sample, DigSigProcErr};
+use crate::Sample;
+use crate::{DigSigProcErr as DSPErr};
+
+use crate::block::{BlockFunctionality, BlockResult};
+
 use crate::filters::{ScalarFilter, SecondOrderFIR};
+use crate::gnss::common::acquisition::AcquisitionResult;
 use crate::gnss::gps_l1_ca;
 use crate::utils::IntegerClock;
+
+use super::TrackReport;
 
 // Design SNR is 0.035 (-14.56 [dB])
 // H0 short test_stat follows an exponential distribution w loc=1.38e-09, scale=5.00e-04
@@ -42,6 +49,8 @@ pub struct Tracking<A: ScalarFilter, B: ScalarFilter> {
 	pub fs:f64,
 	pub local_code:Vec<Complex<f64>>,
 
+	last_acq_result:AcquisitionResult,
+
 	sv_tow_sec_inner:IntegerClock,
 	sv_tow_sec_outer:IntegerClock,
 
@@ -69,13 +78,6 @@ pub enum TrackingState {
 	LostLock,
 }
 
-#[derive(Debug)]
-pub enum TrackingResult {
-	NotReady,
-	Ok{ prompt_i:f64, bit_idx:usize },
-	Err(DigSigProcErr),
-}
-
 #[cfg(debug_assertions)]
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct TrackingDebug {
@@ -85,6 +87,142 @@ pub struct TrackingDebug {
 	pub correlation_prompt_re:f64,
 	pub correlation_prompt_im:f64,
 	pub test_stat:f64,
+}
+
+impl<A:ScalarFilter, B:ScalarFilter> BlockFunctionality<AcquisitionResult, (), Sample, TrackReport> for Tracking<A, B> {
+
+	fn control(&mut self, acq_result:&AcquisitionResult) -> Result<(), &'static str> {
+		self.initialize(acq_result.doppler_hz);
+		self.last_acq_result = acq_result.clone();
+		Ok(())
+	}
+
+	fn apply(&mut self, sample:&Sample) -> BlockResult<TrackReport> {
+		if sample.idx >= self.last_acq_result.sample_idx + self.last_acq_result.code_phase {
+			self.sv_tow_sec_outer.inc();
+
+			// Increment the carrier and code phase
+			self.carrier = self.carrier * self.carrier_inc;
+			self.code_phase += self.code_dphase;
+
+			// Remove the carrier from the new sample and accumulate the power sum
+			let x = sample.val * self.carrier;
+			self.input_signal_power += x.norm_sqr();
+
+			// Integrate early, prompt, and late sums
+		    let e_idx:usize = if self.code_phase < 0.5 { 1022 } else { (self.code_phase - 0.5).floor() as usize };
+		    
+		    self.sum_early  += self.local_code[e_idx%1023] * x;
+		    self.sum_prompt += self.local_code[(self.code_phase.floor() as usize)%1023] * x;
+		    self.sum_late   += self.local_code[(e_idx+1)%1023] * x;			
+			
+			if self.code_phase >= 1023.0 {
+				// End of a 1-ms short coherent cycle
+				self.sv_tow_sec_inner.inc();
+				self.sv_tow_sec_outer.reset(self.sv_tow_sec_inner.time());
+
+				// Update carrier tracking; carrier_error has units [radians]
+				let carrier_error = if self.sum_prompt.re == 0.0 { 0.0 } else { (self.sum_prompt.im / self.sum_prompt.re).atan() };	
+				self.carrier_dphase_rad += self.carrier_filter.apply(carrier_error);
+				self.carrier_inc = Complex{ re: self.carrier_dphase_rad.cos(), im: -self.carrier_dphase_rad.sin() };
+		
+				#[cfg(debug_assertions)]
+				eprintln!("PRN {} carrier update: carrier=({:.3e})+i({:.3e}), err={:.3e} [rad], dphase={:.3e} [rad/sample]", 
+					self.prn, self.carrier.re, self.carrier.im, carrier_error, self.carrier_dphase_rad);
+
+				// Update code tracking
+				// TODO: try other phase detectors
+				self.code_phase -= 1023.0;
+				let code_error:f64 = {
+					let e:f64 = self.sum_early.norm();
+					let l:f64 = self.sum_late.norm();
+					if l+e == 0.0 { 0.0 } else { 0.5 * (l-e) / (l+e) }
+				};
+				self.code_dphase += self.code_filter.apply(code_error);
+				self.sv_tow_sec_outer.set_clock_rate(self.code_dphase * (self.fs.powi(2) / 1.023e6));
+
+				#[cfg(debug_assertions)]
+				eprintln!("PRN {} code update: e={:.6e}, p={:.6e}, l={:.6e}, dphase={:.6e} [chips/sample]", 
+					self.prn, self.sum_early.norm(), self.sum_prompt.norm(), self.sum_late.norm(), self.code_dphase);
+
+				let (result, opt_next_state) = match self.state {
+					TrackingState::WaitingForInitialLockStatus{ ref mut prev_prompt, ref mut prev_test_stat } => {
+
+						let test_stat = self.sum_prompt.norm_sqr()  / (self.input_signal_power * self.code_len_samples);
+
+						if *prev_test_stat > SHORT_COH_THRESH_PROMOTE_TO_LONG && test_stat > SHORT_COH_THRESH_PROMOTE_TO_LONG && (prev_prompt.re > 0.0) != (self.sum_prompt.re > 0.0) { 		
+							// If the signal is not present, each coherent interval has a 9.9999988871e-01 chance of staying under this threshold
+							// If the signal is present,     each coherent interval has a 3.7330000000e-01 chance of staying under this threshold
+							// So if the signal is present, it should only take about 10 tries to exceed this threshold
+							let next_state = TrackingState::Tracking{ num_short_intervals: 1, sum_prompt_long: self.sum_prompt, input_power_long: self.input_signal_power, test_stat };
+							(BlockResult::NotReady, Some(next_state))
+						} else if test_stat < SHORT_COH_THRESH_LOSS_OF_LOCK {	
+							// If the signal is not present, each coherent interval has a 9.974e-04 chance of staying under this threshold
+							// If the signal is present,     each coherent interval has a 4.543e-07 chance of staying under this threshold
+							// If the signal is not present, we should on average only waste about 1 [sec] trying to track it
+							(BlockResult::Err(DSPErr::LossOfLock), Some(TrackingState::LostLock))
+						} else {
+							*prev_test_stat   = test_stat;
+							*prev_prompt      = self.sum_prompt;
+							(BlockResult::NotReady, None)						
+						}
+
+					},
+					TrackingState::Tracking{ ref mut num_short_intervals, ref mut sum_prompt_long, ref mut input_power_long, ref mut test_stat } => {
+						*num_short_intervals += 1;
+						*sum_prompt_long     += self.sum_prompt;
+						*input_power_long    += self.input_signal_power;
+
+						if *num_short_intervals == 20 { 
+
+							// Normalize the carrier at the end of every bit, which is every 20 ms
+							self.carrier = self.carrier / self.carrier.norm();
+			
+							// Check the quality of the lock
+							*test_stat = sum_prompt_long.norm_sqr() / (*input_power_long * self.code_len_samples * 20.0);
+			
+							// Save the value we need for the result, then reset the long accumulators
+							let prompt_i:f64     = sum_prompt_long.re;
+							*num_short_intervals = 0;
+							*sum_prompt_long     = ZERO;
+							*input_power_long    = 0.0;
+
+							// Either return an error or the next bit
+							if *test_stat < LONG_COH_THRESH_LOSS_OF_LOCK { 	
+								// For a long coherent processing interval, we should be over this threshold under H0 or under this
+								// threshold with H1 with a vanishingly small likelihood, i.e. this should be a very good indicator of 
+								// the lock status without any need for other filtering or anything like that
+								// eprintln!("Loss of Lock from Long Coherent State");
+								(BlockResult::Err(DSPErr::LossOfLock), Some(TrackingState::LostLock))
+							} else { 
+								let v = TrackReport { prn: self.prn, prompt_i, sample_idx: sample.idx,
+									test_stat: self.test_stat(), freq_hz: self.carrier_freq_hz() };
+								(BlockResult::Ready(v), None) 
+							}
+						} 
+						else if *num_short_intervals > 20 { panic!("self.num_short_intervals = {}", *num_short_intervals); }
+						else                              { (BlockResult::NotReady, None)                                  }
+					},
+					TrackingState::LostLock => (BlockResult::Err(DSPErr::LossOfLock), None),
+				};
+
+				// Reset the short integration accumulators for the next cycle
+				self.input_signal_power = 0.0;
+				self.sum_early  = ZERO;
+				self.sum_prompt = ZERO;
+				self.sum_late   = ZERO;
+
+				// Transition state if a state transition is required
+				if let Some(next_state) = opt_next_state { self.state = next_state; }
+				
+				result
+
+			} else { BlockResult::NotReady }
+		} else {
+			BlockResult::NotReady
+		}
+	}
+
 }
 
 impl<A: ScalarFilter, B: ScalarFilter> Tracking<A, B> {
@@ -114,127 +252,6 @@ impl<A: ScalarFilter, B: ScalarFilter> Tracking<A, B> {
 			correlation_prompt_im: self.sum_prompt.im,
 			test_stat: self.test_stat(),
 		}
-	}
-
-	// Public interface
-	/// Takes a sample in the form of a tuple of the complex sample itself and the sample number.  Returns a TrackingResult.
-	pub fn apply(&mut self, sample:&Sample) -> TrackingResult {
-		self.sv_tow_sec_outer.inc();
-
-		// Increment the carrier and code phase
-		self.carrier = self.carrier * self.carrier_inc;
-		self.code_phase += self.code_dphase;
-
-		// Remove the carrier from the new sample and accumulate the power sum
-		let x = sample.val * self.carrier;
-		self.input_signal_power += x.norm_sqr();
-
-		// Integrate early, prompt, and late sums
-	    let e_idx:usize = if self.code_phase < 0.5 { 1022 } else { (self.code_phase - 0.5).floor() as usize };
-	    
-	    self.sum_early  += self.local_code[e_idx%1023] * x;
-	    self.sum_prompt += self.local_code[(self.code_phase.floor() as usize)%1023] * x;
-	    self.sum_late   += self.local_code[(e_idx+1)%1023] * x;			
-		
-		if self.code_phase >= 1023.0 {
-			// End of a 1-ms short coherent cycle
-			self.sv_tow_sec_inner.inc();
-			self.sv_tow_sec_outer.reset(self.sv_tow_sec_inner.time());
-
-			// Update carrier tracking; carrier_error has units [radians]
-			let carrier_error = if self.sum_prompt.re == 0.0 { 0.0 } else { (self.sum_prompt.im / self.sum_prompt.re).atan() };	
-			self.carrier_dphase_rad += self.carrier_filter.apply(carrier_error);
-			self.carrier_inc = Complex{ re: self.carrier_dphase_rad.cos(), im: -self.carrier_dphase_rad.sin() };
-	
-			#[cfg(debug_assertions)]
-			eprintln!("PRN {} carrier update: carrier=({:.3e})+i({:.3e}), err={:.3e} [rad], dphase={:.3e} [rad/sample]", 
-				self.prn, self.carrier.re, self.carrier.im, carrier_error, self.carrier_dphase_rad);
-
-			// Update code tracking
-			// TODO: try other phase detectors
-			self.code_phase -= 1023.0;
-			let code_error:f64 = {
-				let e:f64 = self.sum_early.norm();
-				let l:f64 = self.sum_late.norm();
-				if l+e == 0.0 { 0.0 } else { 0.5 * (l-e) / (l+e) }
-			};
-			self.code_dphase += self.code_filter.apply(code_error);
-			self.sv_tow_sec_outer.set_clock_rate(self.code_dphase * (self.fs.powi(2) / 1.023e6));
-
-			#[cfg(debug_assertions)]
-			eprintln!("PRN {} code update: e={:.6e}, p={:.6e}, l={:.6e}, dphase={:.6e} [chips/sample]", 
-				self.prn, self.sum_early.norm(), self.sum_prompt.norm(), self.sum_late.norm(), self.code_dphase);
-
-			let (result, opt_next_state) = match self.state {
-				TrackingState::WaitingForInitialLockStatus{ ref mut prev_prompt, ref mut prev_test_stat } => {
-
-					let test_stat = self.sum_prompt.norm_sqr()  / (self.input_signal_power * self.code_len_samples);
-
-					if *prev_test_stat > SHORT_COH_THRESH_PROMOTE_TO_LONG && test_stat > SHORT_COH_THRESH_PROMOTE_TO_LONG && (prev_prompt.re > 0.0) != (self.sum_prompt.re > 0.0) { 		
-						// If the signal is not present, each coherent interval has a 9.9999988871e-01 chance of staying under this threshold
-						// If the signal is present,     each coherent interval has a 3.7330000000e-01 chance of staying under this threshold
-						// So if the signal is present, it should only take about 10 tries to exceed this threshold
-						let next_state = TrackingState::Tracking{ num_short_intervals: 1, sum_prompt_long: self.sum_prompt, input_power_long: self.input_signal_power, test_stat };
-						(TrackingResult::NotReady, Some(next_state))
-					} else if test_stat < SHORT_COH_THRESH_LOSS_OF_LOCK {	
-						// If the signal is not present, each coherent interval has a 9.974e-04 chance of staying under this threshold
-						// If the signal is present,     each coherent interval has a 4.543e-07 chance of staying under this threshold
-						// If the signal is not present, we should on average only waste about 1 [sec] trying to track it
-						(TrackingResult::Err(DigSigProcErr::LossOfLock), Some(TrackingState::LostLock))
-					} else {
-						*prev_test_stat   = test_stat;
-						*prev_prompt      = self.sum_prompt;
-						(TrackingResult::NotReady, None)						
-					}
-
-				},
-				TrackingState::Tracking{ ref mut num_short_intervals, ref mut sum_prompt_long, ref mut input_power_long, ref mut test_stat } => {
-					*num_short_intervals += 1;
-					*sum_prompt_long     += self.sum_prompt;
-					*input_power_long    += self.input_signal_power;
-
-					if *num_short_intervals == 20 { 
-
-						// Normalize the carrier at the end of every bit, which is every 20 ms
-						self.carrier = self.carrier / self.carrier.norm();
-		
-						// Check the quality of the lock
-						*test_stat = sum_prompt_long.norm_sqr() / (*input_power_long * self.code_len_samples * 20.0);
-		
-						// Save the value we need for the result, then reset the long accumulators
-						let prompt_i:f64     = sum_prompt_long.re;
-						*num_short_intervals = 0;
-						*sum_prompt_long     = ZERO;
-						*input_power_long    = 0.0;
-
-						// Either return an error or the next bit
-						if *test_stat < LONG_COH_THRESH_LOSS_OF_LOCK { 	
-							// For a long coherent processing interval, we should be over this threshold under H0 or under this
-							// threshold with H1 with a vanishingly small likelihood, i.e. this should be a very good indicator of 
-							// the lock status without any need for other filtering or anything like that
-							(TrackingResult::Err(DigSigProcErr::LossOfLock), Some(TrackingState::LostLock))
-						} else { (TrackingResult::Ok{ prompt_i, bit_idx: sample.idx}, None) }
-					} 
-					else if *num_short_intervals > 20 { panic!("self.num_short_intervals = {}", *num_short_intervals); }
-					else                              { (TrackingResult::NotReady, None)                               }
-				},
-				TrackingState::LostLock => (TrackingResult::Err(DigSigProcErr::LossOfLock), None),
-			};
-
-			// Reset the short integration accumulators for the next cycle
-			self.input_signal_power = 0.0;
-			self.sum_early  = ZERO;
-			self.sum_prompt = ZERO;
-			self.sum_late   = ZERO;
-
-			// Transition state if a state transition is required
-			if let Some(next_state) = opt_next_state { self.state = next_state; }
-			
-			result
-
-		} else { TrackingResult::NotReady }
-
-		
 	}
 
 	pub fn initialize(&mut self, acq_freq_hz:f64) {
@@ -292,6 +309,8 @@ pub fn new_default_tracker(prn:usize, acq_freq_hz:f64, fs:f64) -> Tracking<Secon
 
 	Tracking { 
 		code_len_samples, prn, state, fs, local_code, 
+
+		last_acq_result: Default::default(),
 
 		sv_tow_sec_inner: IntegerClock::new(1000.0),
 		sv_tow_sec_outer: IntegerClock::new(fs),

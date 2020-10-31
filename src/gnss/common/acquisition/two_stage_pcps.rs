@@ -1,5 +1,8 @@
 
-use crate::Sample;
+use crate::{Sample, DigSigProcErr as DSPErr};
+use crate::block::{BlockFunctionality, BlockResult};
+
+use super::AcquisitionResult;
 
 pub struct Acquisition {
 	pub fs: f64,
@@ -15,6 +18,23 @@ enum State {
 	StageTwo{ current_freq_hz:f64, current_step_hz:f64, last_code_phase:usize },
 }
 
+impl BlockFunctionality<(), (), Sample, AcquisitionResult> for Acquisition {
+
+	fn control(&mut self, _:&()) -> Result<(), &'static str> {
+		Ok(())
+	}
+
+	fn apply(&mut self, input:&Sample) -> BlockResult<AcquisitionResult> {
+		self.provide_sample(input).unwrap();
+		match self.block_for_result() {
+			Ok(Some(result)) => BlockResult::Ready(result),
+			Ok(None)         => BlockResult::NotReady,
+			Err(e)           => BlockResult::Err(e)
+		}
+	}
+
+}
+
 impl Acquisition {
 	pub fn new(symbol:Vec<i8>, fs:f64, prn:usize, n_coarse:usize, n_fine:usize, stage_two_resolution_hz:f64, test_statistic_threshold:f64, n_skip:usize) -> Acquisition {
 		let state = State::StageOne;
@@ -24,16 +44,13 @@ impl Acquisition {
 	}
 
 	pub fn prn(&self) -> usize { self.stage_one.prn }
-}
 
-impl super::Acquisition for Acquisition {
-
-	fn provide_sample(&mut self, sample:&Sample) -> Result<(), &str> { match self.state {
+	pub fn provide_sample(&mut self, sample:&Sample) -> Result<(), DSPErr> { match self.state {
 		State::StageOne => self.stage_one.provide_sample(sample),
 		State::StageTwo{ current_freq_hz:_, current_step_hz:_, last_code_phase:_ } => self.stage_two.provide_sample(sample),
 	}}
 
-	fn block_for_result(&mut self) -> Result<Option<super::AcquisitionResult>, &str> {
+	pub fn block_for_result(&mut self) -> Result<Option<super::AcquisitionResult>, DSPErr> {
 		let (next_state, ans) = match self.state {
 			State::StageOne => {
 				match self.stage_one.block_for_result() {
@@ -93,5 +110,5 @@ impl super::Acquisition for Acquisition {
 
 		ans
 	}
-
 }
+

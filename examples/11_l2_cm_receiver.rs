@@ -12,7 +12,7 @@ use std::fs::File;
 use clap::{Arg, App};
 use colored::*;
 use rust_radio::{io::BufferedSource, Sample};
-use rust_radio::gnss::common::acquisition::{Acquisition, two_stage_pcps};
+use rust_radio::gnss::common::acquisition::two_stage_pcps;
 use rust_radio::gnss::gps_l2c::{signal_modulation, L2_CM_PERIOD_SEC};
 use rust_radio::gnss::gps_l2c::tlm_decode::{error_correction, preamble_and_crc, message_decode};
 use rust_radio::gnss::gps_l2c::tracking_cm::{self, TrackingResult};

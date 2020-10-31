@@ -13,18 +13,21 @@ use clap::{Arg, App};
 use colored::*;
 use rustfft::num_complex::Complex;
 
-use rust_radio::block::Block;
+use rust_radio::block::{BlockFunctionality, BlockResult};
+use rust_radio::block::block_tree_sync_static::SeriesLeftControl;
+use rust_radio::block::block_tree_sync_static::acquire_and_track::AcquireAndTrack;
+use rust_radio::block::block_tree_sync_static::split_and_merge::RotatingSplitAndMerge;
 use rust_radio::{io::BufferedSource, Sample};
-use rust_radio::gnss::common::acquisition::{self, AcquisitionResult};
-use rust_radio::gnss::gps_l1_ca;
+use rust_radio::gnss::common::acquisition::two_stage_pcps;
+use rust_radio::gnss::gps_l1_ca::{self, tracking::algorithm_standard};
+use rust_radio::gnss::gps_l1_ca::telemetry_decode::{TelemetryDecoder, subframe::Subframe};
 
-#[tokio::main]
-pub async fn main() -> Result<(), &'static str> {
+fn main() -> Result<(), &'static str> {
 
-	let matches = App::new("GPS L1 CA Acquisition")
+	let matches = App::new("GPS L1 CA Subframe Decoding")
 		.version("0.1.0")
 		.author("John Stanford (johnwstanford@gmail.com)")
-		.about("Takes IQ samples centered on 1575.42 MHz and produces acquisition results for the L1 CA signal")
+		.about("Takes IQ samples centered on 1575.42 MHz and produces subframes for the L1 CA signal")
 		.arg(Arg::with_name("filename")
 			.short("f").long("filename")
 			.help("Input filename")
@@ -49,36 +52,31 @@ pub async fn main() -> Result<(), &'static str> {
 
 	eprintln!("Decoding {} at {} [samples/sec], max_records={:?}", &fname, &fs, &opt_max_records);
 
-	let mut acqs:Vec<Block<(), Sample, AcquisitionResult>> = (1..=32).map( |prn| {
+	let mut sam = RotatingSplitAndMerge::from_iter((1..=32).map( |prn| {
 
 		let symbol:Vec<i8> = gps_l1_ca::signal_modulation::prn_int_sampled(prn, fs);
-		let acq = acquisition::make_acquisition(symbol, fs, prn, 9, 17, 0.008, 0);
+		let acq = two_stage_pcps::Acquisition::new(symbol, fs, prn, 9, 3, 50.0, 0.008, 8);
+		let trk = algorithm_standard::new_default_tracker(prn, 0.0, fs);
 
-        Block::from(acq)
+		let aat = AcquireAndTrack::new(acq, trk);
 
-	}).collect();
+		let tlm = TelemetryDecoder::new();
 
-	let mut all_records:Vec<AcquisitionResult> = vec![];
+		SeriesLeftControl::new(aat, tlm)
+	}), 200_000, None);
+
+	let mut all_records:Vec<(usize, Subframe, usize)> = vec![];
 
 	'outer: for s in src.map(|(x, idx)| Sample{ val: Complex{ re: x.0 as f64, im: x.1 as f64 }, idx }) {
 
-		// Send this sample to all acquisition blocks
-		for block in &mut acqs {
-			block.tx_input.send(s.clone()).await.unwrap();
-		}
+		match sam.apply(&s) {
+			BlockResult::Ready((prn, sf, idx)) => {
+				let s =	format!("{:?}", sf);
+				eprintln!("{:4} {:6.2} [sec], PRN {:02}: {}", all_records.len(), (idx as f64)/fs, prn, s.blue());
 
-		// Receive results from all acquisition blocks
-		for block in &mut acqs {
-			while let Ok(result) = block.rx_output.try_recv() {
-					let result_str = format!("{:9.2} [Hz], {:6} [chips], {:.8}, {:8.2} [radians]", result.doppler_hz, result.code_phase, result.test_statistic(), result.mf_response.arg());
-					let time:f64 = result.sample_idx as f64 / fs;
-					if result.test_statistic() < 0.01 {
-						eprintln!("{:6.2} [sec], PRN {:02} {}", time, result.id, result_str.yellow());
-					} else {
-						eprintln!("{:6.2} [sec], PRN {:02} {}", time, result.id, result_str.green());
-					}				
-				all_records.push(result);
-			}
+				all_records.push((prn, sf, idx));
+			},
+			_ => ()
 		}
 
 		if let Some(max_records) = opt_max_records {
@@ -86,9 +84,6 @@ pub async fn main() -> Result<(), &'static str> {
 		}
 
 	}
-
-	// Drop all transmit channels; then wait for the spawned threads to finish
-	for block in acqs { block.shutdown().await?; }
 
 	// Output data in JSON format
 	println!("{}", serde_json::to_string_pretty(&all_records).unwrap());

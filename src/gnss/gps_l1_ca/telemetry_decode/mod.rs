@@ -4,6 +4,8 @@
 use std::collections::VecDeque;
 
 use crate::DigSigProcErr;
+use crate::block::{BlockFunctionality, BlockResult};
+use crate::gnss::gps_l1_ca::tracking::TrackReport;
 
 /*	GPS Telemetry Decoding Pipeline:
 	- Preamble detector
@@ -61,6 +63,24 @@ pub struct TelemetryDecoder {
 	detector: preamble_detector::PreambleDetector,
 	detection_buffer:VecDeque<(bool, usize)>,
 	state: TelemetryDecoderState,
+	idx_buffer: VecDeque<usize>
+}
+
+impl BlockFunctionality<(), bool, TrackReport, (usize, subframe::Subframe, usize)> for TelemetryDecoder {
+
+	fn control(&mut self, _:&()) -> Result<bool, &'static str> {
+		Ok(true)
+	}
+
+	fn apply(&mut self, input:&TrackReport) -> BlockResult<(usize, subframe::Subframe, usize)> {
+		let bit = (input.prompt_i > 0.0, input.sample_idx);
+		match self.apply_sample(bit) {
+			TelemetryDecoderResult::NotReady => BlockResult::NotReady,
+			TelemetryDecoderResult::Err(e)   => BlockResult::Err(e),
+			TelemetryDecoderResult::Ok(sf, _, last_idx) => BlockResult::Ready((input.prn, sf, last_idx))
+		}
+	}
+
 }
 
 pub enum TelemetryDecoderResult {
@@ -74,18 +94,35 @@ impl TelemetryDecoder {
 	pub fn new() -> TelemetryDecoder {
 		TelemetryDecoder{ detector: preamble_detector::new_preamble_detector(), 
 						  detection_buffer: VecDeque::new(),
-						  state: TelemetryDecoderState::LookingForPreamble }
+						  state: TelemetryDecoderState::LookingForPreamble,
+						  idx_buffer: VecDeque::new() }
 	}
 
 	pub fn initialize(&mut self) {
 		self.detector.initialize();
 		self.detection_buffer.clear();
+		self.idx_buffer.clear();
 		self.state = TelemetryDecoderState::LookingForPreamble;
 	}
 
 	/// Takes a bit tuple in the form of a boolean representing a bit and a usize representing the sample index where this symbol ended.
 	/// Returns a TelemetryDecoderResult
-	pub fn apply(&mut self, bit:(bool, usize)) -> TelemetryDecoderResult {
+	pub fn apply_sample(&mut self, bit:(bool, usize)) -> TelemetryDecoderResult {
+		self.idx_buffer.push_back(bit.1);
+		if self.idx_buffer.len() == 3 {
+			let d_idx0 = self.idx_buffer[1] - self.idx_buffer[0];
+			let d_idx1 = self.idx_buffer[2] - self.idx_buffer[1];
+			if d_idx1 > 2*d_idx0 {
+				self.initialize();
+				return TelemetryDecoderResult::NotReady;
+			}
+			self.idx_buffer.pop_front();
+		} else if self.idx_buffer.len() > 3 {
+			// Should never happen but if it does, we want to initialize
+			self.initialize();
+			return TelemetryDecoderResult::NotReady;
+		}
+
 		match self.state {
 			TelemetryDecoderState::LookingForPreamble => {
 				self.detector.apply(bit.0);

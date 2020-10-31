@@ -1,6 +1,8 @@
 
 use rustfft::num_complex::Complex;
 
+pub mod block;
+
 pub mod filters;
 pub mod fourier_analysis;
 pub mod io;
@@ -9,14 +11,15 @@ pub mod types;
 
 pub mod utils;
 
+#[derive(Debug, Clone)]
 pub struct Sample {
 	pub val: Complex<f64>,
 	pub idx: usize,
 }
 
-#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum DigSigProcErr {
-    NoSourceData,
     LossOfLock,
     InvalidTelemetryData(&'static str),
+    Other(&'static str),
 }

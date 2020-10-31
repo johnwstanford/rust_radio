@@ -1,5 +1,5 @@
 
-extern crate clap;
+/*extern crate clap;
 extern crate colored;
 extern crate dirs;
 extern crate nalgebra as na;
@@ -19,11 +19,13 @@ use rustfft::num_complex::Complex;
 use rust_radio::{io::BufferedSource, Sample};
 use rust_radio::gnss::gps_l1_ca::{pvt, channel};
 
-const NUM_ACTIVE_CHANNELS:usize = 7;
+const NUM_ACTIVE_CHANNELS:usize = 7;*/
 
 fn main() {
 
-	let matches = App::new("GPS Ephemerides")
+	// TODO: update to work with Block interface
+
+	/*let matches = App::new("GPS Ephemerides")
 		.version("0.1.0")
 		.author("John Stanford (johnwstanford@gmail.com)")
 		.about("Stores GPS ephemerides in JSON format and can reload and analyze them")
@@ -57,8 +59,8 @@ fn main() {
 			let fs:f64 = fs_str.parse().unwrap();
 			eprintln!("Decoding {} at {} [samples/sec]", &fname, &fs);
 		
-			let mut inactive_channels:VecDeque<channel::DefaultChannel> = (1..=32).map(|prn| channel::new_channel(prn, fs, 0.01)).collect();
-			let mut active_channels:VecDeque<channel::DefaultChannel>   = inactive_channels.drain(..NUM_ACTIVE_CHANNELS).collect();
+			let mut inactive_channels:VecDeque<channel::Channel> = (1..=32).map(|prn| channel::new_channel(prn, fs, 0.01)).collect();
+			let mut active_channels:VecDeque<channel::Channel>   = inactive_channels.drain(..NUM_ACTIVE_CHANNELS).collect();
 
 			let src:BufferedSource<File, (i16, i16)> = BufferedSource::new(File::open(fname).unwrap()).unwrap();
 			for s in src.map(|(x, idx)| Sample{ val: Complex{ re: x.0 as f64, im: x.1 as f64 }, idx}) {
@@ -153,5 +155,5 @@ fn main() {
 
 	// Output JSON data
 	let mut file = File::create(json_filename).unwrap();
-    file.write_all(serde_json::to_string_pretty(&ephemerides_data).unwrap().as_bytes()).unwrap();
+    file.write_all(serde_json::to_string_pretty(&ephemerides_data).unwrap().as_bytes()).unwrap();*/
 }

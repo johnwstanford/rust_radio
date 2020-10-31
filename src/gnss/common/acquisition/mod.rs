@@ -3,14 +3,16 @@ use rustfft::FFTplanner;
 use rustfft::num_complex::Complex;
 use rustfft::num_traits::Zero;
 
-use crate::Sample;
+use serde::{Serialize, Deserialize};
 
 pub mod basic_pcps;
 pub mod fast_pcps;
 pub mod two_stage_pcps;
 
-#[derive(Debug)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct AcquisitionResult {
+	pub id:usize,
+	pub sample_idx:usize,
 	pub doppler_hz:f64,
 	pub doppler_step_hz:f64,
 	pub code_phase:usize,
@@ -23,11 +25,6 @@ impl AcquisitionResult {
 
 	pub fn test_statistic(&self) -> f64 { self.mf_response.norm_sqr() / (self.input_power_total * (self.mf_len as f64)) }
 
-}
-
-pub trait Acquisition {
-	fn provide_sample(&mut self, sample:&Sample) -> Result<(), &str>;
-	fn block_for_result(&mut self) -> Result<Option<AcquisitionResult>, &str>;
 }
 
 pub fn make_acquisition(symbol:Vec<i8>, fs:f64, prn:usize, n_coarse:usize, n_fine:usize, test_statistic_threshold:f64, n_skip:usize) -> fast_pcps::Acquisition {

@@ -12,7 +12,7 @@ use std::fs::File;
 use clap::{Arg, App};
 use colored::*;
 use rust_radio::{io::BufferedSource, Sample};
-use rust_radio::gnss::common::acquisition::{Acquisition, two_stage_pcps, basic_pcps};
+use rust_radio::gnss::common::acquisition::{two_stage_pcps, basic_pcps};
 use rust_radio::gnss::gps_l2c::{signal_modulation, L2_CM_PERIOD_SEC, L2_CL_PERIOD_SEC};
 use rust_radio::gnss::gps_l2c::tracking_cl::{self, TrackingResult};
 use rustfft::num_complex::Complex;
@@ -124,7 +124,7 @@ fn main() {
 						
 					},
 					Err(msg) => {
-						eprintln!("PRN {}: Error, {}", prn, msg);
+						eprintln!("PRN {}: Error, {:?}", prn, msg);
 						break 'outer;
 					},
 					Ok(None) => None
@@ -153,7 +153,7 @@ fn main() {
 						
 					},
 					Err(msg) => {
-						eprintln!("PRN {}: Error, {}", prn, msg);
+						eprintln!("PRN {}: Error, {:?}", prn, msg);
 						break 'outer;
 					},
 					Ok(None) => None

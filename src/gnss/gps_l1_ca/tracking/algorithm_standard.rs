@@ -78,9 +78,9 @@ pub enum TrackingState {
 	LostLock,
 }
 
-#[cfg(debug_assertions)]
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct TrackingDebug {
+	pub prn:usize,
 	pub carrier_re:f64,
 	pub carrier_im:f64,
 	pub carrier_hz:f64,
@@ -242,9 +242,9 @@ impl<A: ScalarFilter, B: ScalarFilter> Tracking<A, B> {
 		self.sv_tow_sec_inner.reset(t);
 	}
 
-	#[cfg(debug_assertions)]
 	pub fn debug(&self) -> TrackingDebug {
 		TrackingDebug {
+			prn: self.prn,
 			carrier_re: self.carrier.re,
 			carrier_im: self.carrier.im,
 			carrier_hz: (self.carrier_dphase_rad * self.fs) / (2.0 * consts::PI),

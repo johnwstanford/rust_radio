@@ -51,6 +51,7 @@ impl<T: Clone, U, A: BlkFunc<(), bool, T, U>> RotatingSplitAndMerge<T, U, A> {
 				*is_active = false; 				
 			}
 		}
+		// eprintln!("RSAM: {} blocks locked", total_locked);
 
 		// As long as we're below our maximum, activate at least one
 		// At some point, I might add configuration that allows you to activate more than one in this case

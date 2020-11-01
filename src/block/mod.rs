@@ -44,21 +44,32 @@ pub trait BlockFunctionality<C: Clone, D, T: Clone, U> {
 
 }
 
-pub struct Block<C: 'static + Send, T: 'static + Send, U: 'static + Send> {
-	pub tx_control: mpsc::Sender<C>,
-	pub tx_input:   mpsc::Sender<T>,
-	pub rx_output:  mpsc::Receiver<U>,
-	pub handles:    Vec<JoinHandle<Result<(), &'static str>>>,
+pub struct Block<C: 'static + Send, D: 'static + Send, T: 'static + Send, U: 'static + Send> {
+	pub tx_control:  mpsc::Sender<C>,
+	pub rx_response: mpsc::Receiver<D>,
+	pub tx_input:    mpsc::Sender<T>,
+	pub rx_output:   mpsc::Receiver<U>,
+	pub handles:     Vec<JoinHandle<Result<(), &'static str>>>,
 }
 
 
-impl<C: Send + Sync + Clone, T: Send + Sync + Clone, U: Send + Sync> Block<C, T, U> {
+impl<C: Send + Sync + Clone, D: Send + Sync, T: Send + Sync + Clone, U: Send + Sync> Block<C, D, T, U> {
 
-	pub fn from<B: 'static + BlockFunctionality<C, (), T, U> + Send + Sync>(b:B) -> Self {
+	pub async fn apply(&mut self, input:T) -> Result<(), &'static str> {
+		self.tx_input.send(input).await.map_err(|_| "Unable to send block input")
+	}
+
+	pub fn try_recv(&mut self) -> Result<U, &'static str> {
+		self.rx_output.try_recv().map_err(|_| "Unable to receive block output")
+	}
+
+	pub fn from<B: 'static + BlockFunctionality<C, D, T, U> + Send + Sync>(b:B) -> Self {
 		
-		let (   tx_control, mut rx_control) = mpsc::channel::<C>(10);
-		let (     tx_input,   mut rx_input) = mpsc::channel::<T>(10);
-		let (mut tx_output,      rx_output) = mpsc::channel::<U>(10);
+		// TODO: make these channel capacities configurable
+		let (     tx_control, mut rx_control) = mpsc::channel::<C>(10);
+		let (mut tx_response,    rx_response) = mpsc::channel::<D>(10);
+		let (       tx_input,   mut rx_input) = mpsc::channel::<T>(4000);
+		let (  mut tx_output,      rx_output) = mpsc::channel::<U>(100);
 
 		let handle:JoinHandle<Result<(), &'static str>> = tokio::spawn(async move {
 
@@ -69,7 +80,8 @@ impl<C: Send + Sync + Clone, T: Send + Sync + Clone, U: Send + Sync> Block<C, T,
 		    	// Interleaving control handling with input handling prevents us from having to
 		    	// use a mutex to protect the state
 		    	if let Ok(c) = rx_control.try_recv() {
-		    		owned_b.control(&c)?;
+		    		let d:D = owned_b.control(&c)?;
+		    		tx_response.send(d).await.map_err(|_| "Unable to send control response")?;
 		    	}
 
 				match owned_b.apply(&t) {
@@ -88,12 +100,12 @@ impl<C: Send + Sync + Clone, T: Send + Sync + Clone, U: Send + Sync> Block<C, T,
 
         let handles = vec![handle];
 
-		Block{ tx_control, tx_input, rx_output, handles }
+		Block{ tx_control, rx_response, tx_input, rx_output, handles }
 	}
 
 	pub async fn shutdown(self) -> Result<(), &'static str> {
 		
-		let Block{ tx_control, tx_input, rx_output:_, handles } = self;
+		let Block{ tx_control, rx_response:_, tx_input, rx_output:_, handles } = self;
 		
 		drop(tx_control);
 		drop(tx_input);

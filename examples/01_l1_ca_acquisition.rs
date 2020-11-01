@@ -13,6 +13,9 @@ use clap::{Arg, App};
 use colored::*;
 use rustfft::num_complex::Complex;
 
+use uhd_rs::usrp::USRP;
+use uhd_rs::job::{Job, simple_rx};
+
 use rust_radio::block::Block;
 use rust_radio::{io::BufferedSource, Sample};
 use rust_radio::gnss::common::acquisition::{self, AcquisitionResult};
@@ -26,9 +29,13 @@ pub async fn main() -> Result<(), &'static str> {
 		.author("John Stanford (johnwstanford@gmail.com)")
 		.about("Takes IQ samples centered on 1575.42 MHz and produces acquisition results for the L1 CA signal")
 		.arg(Arg::with_name("filename")
-			.short("f").long("filename")
+			.long("filename")
 			.help("Input filename")
-			.required(true).takes_value(true))
+			.required_unless("usrp").takes_value(true))
+		.arg(Arg::with_name("usrp")
+			.long("usrp")
+			.help("USRP device arguments; can be an empty string")
+			.required_unless("filename").takes_value(true))
 		.arg(Arg::with_name("input_type")
 			.short("t").long("type")
 			.takes_value(true)
@@ -41,13 +48,22 @@ pub async fn main() -> Result<(), &'static str> {
 			.takes_value(true))
 		.get_matches();
 
-	let fname:&str = matches.value_of("filename").unwrap();
-	let src:BufferedSource<File, (i16, i16)> = BufferedSource::new(File::open(&fname).unwrap()).unwrap();
-
 	let fs = matches.value_of("sample_rate_sps").unwrap().parse().unwrap();
 	let opt_max_records:Option<usize> = matches.value_of("max_records").map(|s| s.parse().unwrap() );
 
-	eprintln!("Decoding {} at {} [samples/sec], max_records={:?}", &fname, &fs, &opt_max_records);
+	let src:Box<dyn Iterator<Item = ((i16, i16), usize)>> = match (matches.value_of("filename"), matches.value_of("usrp")) {
+		(Some(fname), _) => {
+			eprintln!("Decoding {} at {} [samples/sec], max_records={:?}", &fname, &fs, &opt_max_records);
+			Box::new(BufferedSource::new(File::open(&fname).unwrap()).unwrap())
+		},
+		(_, Some(usrp_args)) => {
+			eprintln!("Creating USRP device with args {:?}", &usrp_args);
+
+			panic!("Need to finish");
+		},
+		(None, None) => panic!("No filename or USRP args; clap should have caught this")
+	};
+
 
 	let mut acqs:Vec<Block<(), Sample, AcquisitionResult>> = (1..=32).map( |prn| {
 

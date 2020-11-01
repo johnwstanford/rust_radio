@@ -56,7 +56,7 @@ pub async fn main() -> Result<(), &'static str> {
 
    	let src:Box<dyn Iterator<Item = ((i16, i16), usize)>> = match (matches.value_of("filename"), matches.value_of("usrp")) {
 		(Some(fname), _) => {
-			eprintln!("Decoding {} at {} [samples/sec], max_records={:?}", &fname, &fs, &opt_max_records);
+			eprintln!("Decoding {} at {} [samples/sec]", &fname, &fs);
 			Box::new(BufferedSource::new(File::open(&fname).unwrap()).unwrap())
 		},
 		(_, opt_usrp_args) => {

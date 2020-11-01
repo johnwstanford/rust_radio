@@ -24,7 +24,7 @@ use rust_radio::utils::kinematics;
 // TODO: make these configurable
 const WEEK_SEC:f64 = 3600.0 * 24.0 * 7.0;
 
-fn main() {
+pub fn main() -> Result<(), &'static str> {
 
 	let matches = App::new("GPS L1 C/A GPS Receiver")
 		.version("0.1.0")
@@ -41,11 +41,22 @@ fn main() {
 		.arg(Arg::with_name("sample_rate_sps")
 			.short("s").long("sample_rate_sps")
 			.takes_value(true).required(true))
+		.arg(Arg::with_name("output_fixes")
+			.long("output_fixes")
+			.help("Output filename for JSON-formatted fixes")
+			.takes_value(true))
+		.arg(Arg::with_name("output_rollovers")
+			.long("output_rollovers")
+			.help("Output filename for JSON-formatted TOW rollovers")
+			.takes_value(true))
 		.get_matches();
 
 	let fname:&str = matches.value_of("filename").unwrap();
 	let fs = matches.value_of("sample_rate_sps").unwrap().parse().unwrap();
+	
 	let mut tow_rcv:f64 = 0.0;
+	let mut last_tow_rcv:f64 = 0.0;
+	let mut updated_once:bool = false;
 
 	eprintln!("Decoding {} at {} [samples/sec]", &fname, &fs);
 
@@ -59,6 +70,7 @@ fn main() {
 
 
 	let mut all_fixes:Vec<pvt::GnssFix> = vec![];
+	let mut all_rollovers:Vec<(f64, usize)> = vec![];
 
 	let mut x_master = Vector4::new(0.0, 0.0, 0.0, 0.0);
 	let ionosphere:Option<pvt::ionosphere::Model> = None;
@@ -67,8 +79,17 @@ fn main() {
 	for s in src.map(|(x, idx)| Sample{ val: Complex{ re: x.0 as f64, im: x.1 as f64 }, idx }) {
 
 		let current_rx_time:f64 = (s.idx as f64 + 0.5) / fs;
+		
 		tow_rcv += 1.0 / fs;
 		if tow_rcv > WEEK_SEC { tow_rcv -= WEEK_SEC; }
+
+		// See if we've rolled over into a new GPS second
+		if tow_rcv.floor() != last_tow_rcv.floor() && updated_once {
+			// The tuple is (second we rolled over into, sample where we rolled over into it)
+			all_rollovers.push((tow_rcv.floor(), s.idx));
+		}
+
+		last_tow_rcv = tow_rcv;
 
 		let sample_w_time = (s, tow_rcv);
 
@@ -104,12 +125,20 @@ fn main() {
 
 				tow_rcv -= x[3] / (kinematics::C);
 				for i in 0..3 { x_master[i] = x[i]; }
+				updated_once = true;
 				all_fixes.push(fix);
 			}
 		}
 
 	}
 
-	println!("{}", serde_json::to_string_pretty(&all_fixes).unwrap());
+	if let Some(outfile) = matches.value_of("output_fixes") {
+		std::fs::write(outfile, serde_json::to_string_pretty(&all_fixes).unwrap().as_bytes()).map_err(|_| "Unable to write fixes JSON")?;
+	}
 
+	if let Some(outfile) = matches.value_of("output_rollovers") {
+		std::fs::write(outfile, serde_json::to_string_pretty(&all_rollovers).unwrap().as_bytes()).map_err(|_| "Unable to write rollovers JSON")?;
+	}
+
+	Ok(())
 }

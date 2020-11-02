@@ -10,7 +10,7 @@ pub struct RotatingSplitAndMerge<T: Clone, U, A: BlkFunc<(), bool, T, U>> {
 	rotation_count:usize,
 	next_to_activate:usize,
 	max_active:Option<usize>,
-	blocks:Vec<(bool, A)>,
+	pub blocks:Vec<(bool, A)>,
 	output_buffer:VecDeque<U>,
 	pt: PhantomData<T>,
 }

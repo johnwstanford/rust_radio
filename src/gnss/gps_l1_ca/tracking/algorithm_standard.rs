@@ -28,11 +28,6 @@ use super::TrackReport;
 // stats/describe.py fits distributions to the JSON output of the other two 
 //   scripts and ranks the results by best fit
 
-pub const DEFAULT_FILTER_B1:f64 = 0.5;
-pub const DEFAULT_FILTER_B2:f64 = 0.5;
-pub const DEFAULT_FILTER_B3:f64 = 0.5;
-pub const DEFAULT_FILTER_B4:f64 = 0.5;
-
 pub const SHORT_COH_THRESH_PROMOTE_TO_LONG:f64 = 0.008;
 pub const SHORT_COH_THRESH_LOSS_OF_LOCK:f64    = 5.0e-7;
 pub const LONG_COH_THRESH_LOSS_OF_LOCK:f64     = 0.001;
@@ -294,10 +289,9 @@ pub fn new_default_tracker(prn:usize, acq_freq_hz:f64, fs:f64) -> Tracking<Secon
 
 	// FIR coefficients for both filters have units of [1 / samples]
 	// Prototyped in Python repo on commit ba5ce609149 under controls/pll_state_space_0_3tap_fir.py
-	let (b1, b2, b3, b4) = (DEFAULT_FILTER_B1, DEFAULT_FILTER_B2, DEFAULT_FILTER_B3, DEFAULT_FILTER_B4);
-	let a0 = (b1*b2*b3*b4) / SYMBOL_LEN_SEC;
-	let a1 = -((b1+b2)*b3*b4 + (b3+b4)*b1*b2) / SYMBOL_LEN_SEC;
-	let a2 = (b3*b4 + b1*b2 + (b1+b2)*(b3+b4) - 1.0) / SYMBOL_LEN_SEC;
+	let a0 =  1.0 / (16.0 * SYMBOL_LEN_SEC);
+	let a1 = -1.0 / ( 2.0 * SYMBOL_LEN_SEC);
+	let a2 =  1.0 / ( 2.0 * SYMBOL_LEN_SEC);
 
 	#[cfg(debug_assertions)]
 	eprintln!("Tracker filter coeffs: a0={:.1}/fs, a1={:.1}/fs, a2={:.1}/fs", a0, a1, a2);

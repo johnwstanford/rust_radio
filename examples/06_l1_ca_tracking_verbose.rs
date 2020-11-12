@@ -118,7 +118,7 @@ pub async fn main() -> Result<(), &'static str> {
 		let symbol:Vec<i8> = gps_l1_ca::signal_modulation::prn_int_sampled(prn, fs);
 		let acq = two_stage_pcps::Acquisition::new(symbol, fs, prn, 9, 3, 50.0, 0.008, 8);
 
-		let trk = algorithm_standard::new_default_tracker(prn, 0.0, fs);
+		let trk = algorithm_standard::new_2nd_order_tracker(prn, 0.0, fs, 0.0, 0.0);
 
 		AcquireAndTrack::new(acq, trk)
 

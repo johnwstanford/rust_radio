@@ -8,6 +8,7 @@ authors = ["johnstanford"]
 byteorder = "1.2.6"
 clap = "2.33.0"
 colored = "1.8.0"
+crossterm = "0.16.0"
 dirs = "2.0.1"
 nalgebra = "0.18.0"
 num-complex = { version="0.2.3", features=["serde"] }

@@ -1,13 +1,19 @@
 
 extern crate nalgebra as na;
 
+use std::collections::HashMap;
+use std::io::Write;
 use std::ffi::CString;
 use std::fs::File;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use clap::{Arg, App};
-use colored::*;
+use crossterm::{
+    execute,
+    style::{self, Color}, cursor, terminal//, Result
+};
+
 use rustfft::num_complex::Complex;
 
 use uhd_rs::types::{TuneRequest, TuneRequestPolicy};
@@ -20,6 +26,16 @@ use rust_radio::{io::BufferedSource, Sample};
 use rust_radio::gnss::common::acquisition::two_stage_pcps;
 use rust_radio::gnss::gps_l1_ca::tracking::TrackReport;
 use rust_radio::gnss::gps_l1_ca::{self, tracking::algorithm_standard};
+
+const DISPLAY_AGE_OUT_TIME_SEC:f64 = 3.0;
+const DISPLAY_RATE_SAMPLES:usize = 200_000;
+
+#[derive(Debug, Default, Clone)]
+struct ChannelState {
+	pub test_stat: f64,
+	pub carrier_hz: f64,
+	pub last_update_sec: f64,
+}
 
 #[tokio::main]
 pub async fn main() -> Result<(), &'static str> {
@@ -95,7 +111,7 @@ pub async fn main() -> Result<(), &'static str> {
 		let symbol:Vec<i8> = gps_l1_ca::signal_modulation::prn_int_sampled(prn, fs);
 		let acq = two_stage_pcps::Acquisition::new(symbol, fs, prn, 9, 3, 50.0, 0.008, 8);
 
-		let trk = algorithm_standard::new_default_tracker(prn, 0.0, fs);
+		let trk = algorithm_standard::new_2nd_order_tracker(prn, 0.0, fs, 0.5, 0.5);
 
 		AcquireAndTrack::new(acq, trk)
 
@@ -105,16 +121,52 @@ pub async fn main() -> Result<(), &'static str> {
 
 	let mut all_records:Vec<TrackReport> = vec![];
 
+	let mut display_state:HashMap<usize, ChannelState> = HashMap::new();
+
 	'outer: for s in src.map(|(x, idx)| Sample{ val: Complex{ re: x.0 as f64, im: x.1 as f64 }, idx }) {
+
+		// Process diplay
+		if s.idx % DISPLAY_RATE_SAMPLES == 0 {
+			let current_time_sec:f64 = (s.idx as f64) / fs;
+
+			// Process age-out
+			display_state = display_state.into_iter().filter(|(_, state)| (state.last_update_sec - current_time_sec).abs() < DISPLAY_AGE_OUT_TIME_SEC).collect();
+
+			let mut stderr = std::io::stderr();
+
+			execute!(stderr, terminal::Clear(terminal::ClearType::All)).unwrap();
+			execute!(stderr, style::SetForegroundColor(Color::White)).unwrap();
+
+			execute!(stderr, cursor::MoveTo(5,1)).unwrap();
+			eprintln!("{:6.2} [sec]: {} SVs tracked", current_time_sec, display_state.len());
+
+			let mut sv_states:Vec<(usize, ChannelState)> = display_state.iter().map(|(prn, state)| (prn.clone(), state.clone())).collect();
+			sv_states.sort_by_key(|x| x.0);
+
+			for (prn, state) in sv_states {
+				if      state.test_stat > 0.04  { execute!(stderr, style::SetForegroundColor(Color::Green)).unwrap();  }
+				else if state.test_stat > 0.015 { execute!(stderr, style::SetForegroundColor(Color::Yellow)).unwrap(); }
+				else                            { execute!(stderr, style::SetForegroundColor(Color::Red)).unwrap();    }
+
+				eprintln!("PRN {:02}: test_stat={:.5}, carrier={:7.3} [kHz], updated {:.1} [sec] ago", prn, 
+					state.test_stat, state.carrier_hz*1.0e-3, current_time_sec-state.last_update_sec);
+			}
+			
+			execute!(stderr, style::SetForegroundColor(Color::White)).unwrap();
+
+		}
 
 		blk.apply(s).await.unwrap();
 
 		if let Ok(report) = blk.try_recv() {
-			let s =	format!("{:6.2} [sec], PRN {:02}, test_stat={:.5}, {:6.2} [kHz], {:.3e}", 
-				(report.sample_idx as f64)/fs, report.prn, report.test_stat, report.freq_hz*1.0e-3, report.prompt_i);
-			if      report.test_stat > 0.04 { eprintln!("{}", s.green());  }
-			else if report.test_stat > 0.02 { eprintln!("{}", s.yellow()); }
-			else                            { eprintln!("{}", s.red());    }
+
+			if !display_state.contains_key(&report.prn) { display_state.insert(report.prn, ChannelState::default()); }
+			
+			if let Some(state) = display_state.get_mut(&report.prn) {
+				state.test_stat = report.test_stat;
+				state.carrier_hz = report.freq_hz;
+				state.last_update_sec = (report.sample_idx as f64)/fs;
+			}
 
 			all_records.push(report);
 		}

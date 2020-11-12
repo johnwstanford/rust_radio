@@ -200,7 +200,7 @@ impl Channel {
 pub fn new_channel(prn:usize, fs:f64, test_stat_threshold:f64, pvt_rate_samples:usize) -> Channel { 
 	let symbol:Vec<i8> = gps_l1_ca::signal_modulation::prn_int_sampled(prn, fs);
 	let acq = Acquisition::new(symbol, fs, prn, 9, 3, 50.0, test_stat_threshold, 8);
-	let trk = tracking::algorithm_standard::new_default_tracker(prn, 0.0, fs);
+	let trk = tracking::algorithm_standard::new_2nd_order_tracker(prn, 0.0, fs, 0.0, 0.0);
 	let tlm = telemetry_decode::TelemetryDecoder::new();
 
 	let aat = AcquireAndTrack::new(acq, trk);

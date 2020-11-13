@@ -5,7 +5,7 @@ use std::collections::VecDeque;
 
 use crate::DigSigProcErr;
 use crate::block::{BlockFunctionality, BlockResult};
-use crate::gnss::gps_l1_ca::tracking::TrackReport;
+use crate::gnss::common::tracking::TrackReport;
 
 /*	GPS Telemetry Decoding Pipeline:
 	- Preamble detector
@@ -77,7 +77,7 @@ impl BlockFunctionality<(), bool, TrackReport, (usize, subframe::Subframe, usize
 		match self.apply_sample(bit) {
 			TelemetryDecoderResult::NotReady => BlockResult::NotReady,
 			TelemetryDecoderResult::Err(e)   => BlockResult::Err(e),
-			TelemetryDecoderResult::Ok(sf, _, last_idx) => BlockResult::Ready((input.prn, sf, last_idx))
+			TelemetryDecoderResult::Ok(sf, _, last_idx) => BlockResult::Ready((input.id, sf, last_idx))
 		}
 	}
 

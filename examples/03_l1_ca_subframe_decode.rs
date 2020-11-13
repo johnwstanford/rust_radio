@@ -19,7 +19,7 @@ use rust_radio::block::block_tree_sync_static::acquire_and_track::AcquireAndTrac
 use rust_radio::block::block_tree_sync_static::split_and_merge::RotatingSplitAndMerge;
 use rust_radio::{io::BufferedSource, Sample};
 use rust_radio::gnss::common::acquisition::two_stage_pcps;
-use rust_radio::gnss::gps_l1_ca::{self, tracking::algorithm_standard};
+use rust_radio::gnss::gps_l1_ca::{self, tracking};
 use rust_radio::gnss::gps_l1_ca::telemetry_decode::{TelemetryDecoder, subframe::Subframe};
 
 fn main() -> Result<(), &'static str> {
@@ -56,7 +56,7 @@ fn main() -> Result<(), &'static str> {
 
 		let symbol:Vec<i8> = gps_l1_ca::signal_modulation::prn_int_sampled(prn, fs);
 		let acq = two_stage_pcps::Acquisition::new(symbol, fs, prn, 9, 3, 50.0, 0.008, 8);
-		let trk = algorithm_standard::new_1st_order_tracker(prn, 0.0, fs, 0.85, 0.55);
+		let trk = tracking::new_1st_order_tracker(prn, 0.0, fs, 0.85, 0.55);
 
 		let aat = AcquireAndTrack::new(acq, trk);
 

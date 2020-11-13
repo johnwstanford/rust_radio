@@ -3,8 +3,11 @@ use std::f64::consts;
 
 use ::rustfft::num_complex::Complex;
 
-use crate::{Sample, DigSigProcErr};
+use crate::{Sample, DigSigProcErr as DSPErr};
+use crate::block::{BlockFunctionality, BlockResult};
 use crate::filters::{ScalarFilter, SecondOrderFIR};
+use crate::gnss::common::acquisition::AcquisitionResult;
+use crate::gnss::common::tracking::TrackReport;
 use crate::utils::IntegerClock;
 
 // Design SNR is 0.015, -18.24 [dB]
@@ -31,7 +34,7 @@ pub const SYMBOL_LEN_SEC:f64 = 20.0e-3;
 
 const ZERO:Complex<f64> = Complex{ re: 0.0, im: 0.0 };
 
-pub struct Tracking<A: ScalarFilter, B: ScalarFilter> {
+pub struct Tracking<A: ScalarFilter> {
 	code_len_samples: f64,
 	pub prn:usize,
 	pub state: TrackingState,
@@ -39,6 +42,7 @@ pub struct Tracking<A: ScalarFilter, B: ScalarFilter> {
 	pub local_code:Vec<Complex<f64>>,
 
 	last_test_stat:f64,
+	last_acq_result:AcquisitionResult,
 
 	sv_tow_sec_inner:IntegerClock,
 	sv_tow_sec_outer:IntegerClock,
@@ -51,7 +55,7 @@ pub struct Tracking<A: ScalarFilter, B: ScalarFilter> {
 	code_dphase: f64,
 
 	carrier_filter: A,
-	code_filter: B,
+	code_filter: A,
 
 	// Used during summation over the short interval
 	sum_early:  Complex<f64>,
@@ -67,25 +71,124 @@ pub enum TrackingState {
 	LostLock,
 }
 
-#[derive(Debug)]
-pub enum TrackingResult {
-	NotReady,
-	Ok{ prompt_i:f64, bit_idx:usize },
-	Err(DigSigProcErr),
+impl<A:ScalarFilter> BlockFunctionality<AcquisitionResult, (), Sample, TrackReport> for Tracking<A> {
+
+	fn control(&mut self, acq_result:&AcquisitionResult) -> Result<(), &'static str> {
+		self.initialize(acq_result.doppler_hz);
+		self.last_acq_result = acq_result.clone();
+		Ok(())
+	}
+
+	fn apply(&mut self, sample:&Sample) -> BlockResult<TrackReport> {
+		if sample.idx >= self.last_acq_result.sample_idx + self.last_acq_result.code_phase {
+	
+			self.sv_tow_sec_outer.inc();
+
+			// Increment the carrier and code phase
+			self.carrier = self.carrier * self.carrier_inc;
+			self.code_phase += self.code_dphase;
+
+			// Remove the carrier from the new sample and accumulate the power sum
+			let x = sample.val * self.carrier;
+			self.input_signal_power += x.norm_sqr();
+
+			// Integrate early, prompt, and late sums
+		    let e_idx:usize = if self.code_phase < 0.5 { 20459 } else { (self.code_phase - 0.5).floor() as usize };
+		    
+		    self.sum_early  += self.local_code[e_idx%20460] * x;
+		    self.sum_prompt += self.local_code[(self.code_phase.floor() as usize)%20460] * x;
+		    self.sum_late   += self.local_code[(e_idx+1)%20460] * x;			
+			
+			if self.code_phase >= 20460.0 {
+
+				// End of a 20-ms short coherent cycle
+				self.sv_tow_sec_inner.inc();
+				self.sv_tow_sec_outer.reset(self.sv_tow_sec_inner.time());
+
+				// Update carrier tracking; carrier_error has units [radians]
+				let carrier_error = if self.sum_prompt.re == 0.0 { 0.0 } else { (self.sum_prompt.im / self.sum_prompt.re).atan() };	
+				self.carrier_dphase_rad += self.carrier_filter.apply(carrier_error);
+				self.carrier_inc = Complex{ re: self.carrier_dphase_rad.cos(), im: -self.carrier_dphase_rad.sin() };
+		
+				// Update code tracking
+				self.code_phase -= 20460.0;
+				let code_error:f64 = {
+					let e:f64 = self.sum_early.norm();
+					let l:f64 = self.sum_late.norm();
+					if l+e == 0.0 { 0.0 } else { 0.5 * (l-e) / (l+e) }
+				};
+				self.code_dphase += self.code_filter.apply(code_error);
+				self.sv_tow_sec_outer.set_clock_rate(self.code_dphase * (self.fs.powi(2) / 1.023e6));
+
+				self.last_test_stat = self.sum_prompt.norm_sqr()  / (self.input_signal_power * self.code_len_samples);
+
+				let (result, opt_next_state) = match self.state {
+					TrackingState::WaitingForInitialLockStatus(mut tries_so_far) => if self.last_test_stat > TEST_STAT_THRESH_CM {
+						// Transition to normal tracking state, but we still don't have a bit to report
+						(BlockResult::NotReady, Some(TrackingState::Tracking))
+					} else {
+						tries_so_far += 1;
+						if tries_so_far >= INITIAL_LOCK_ATTEMPTS {
+							// We've exceeded the number of initial attempts without success, so report
+							// it and transition to a lost lock state
+							(BlockResult::Err(DSPErr::LossOfLock), Some(TrackingState::LostLock))
+						} else {
+							// We failed this time, but don't give up yet
+							(BlockResult::NotReady, None)
+						}
+					},
+					TrackingState::Tracking => {
+
+						// Normalize the carrier at the end of every symbol, which is every 20 ms
+						self.carrier = self.carrier / self.carrier.norm();
+		
+						// Save the value we need for the result, then reset the long accumulators
+						// TODO: determine whether or not this applies to L2C
+						let prompt_i:f64 = self.sum_prompt.re;
+
+						// Either return an error or the next bit
+						if self.last_test_stat < TEST_STAT_THRESH_CM { 	
+							// For a long coherent processing interval, we should be over this threshold under H0 or under this
+							// threshold with H1 with a vanishingly small likelihood, i.e. this should be a very good indicator of 
+							// the lock status without any need for other filtering or anything like that
+							(BlockResult::Err(DSPErr::LossOfLock), Some(TrackingState::LostLock))
+						} else { 
+							let v = TrackReport { id: self.prn, prompt_i, sample_idx: sample.idx,
+								test_stat: self.test_stat(), freq_hz: self.carrier_freq_hz() };
+							(BlockResult::Ready(v), None) 
+						}
+
+					},
+					TrackingState::LostLock => {
+						// If we've lost the lock, we'll report it and stay in that state until we're reset by external command
+						(BlockResult::Err(DSPErr::LossOfLock), None)
+					},
+				};
+
+				// Reset the short integration accumulators for the next cycle
+				self.input_signal_power = 0.0;
+				self.sum_early  = ZERO;
+				self.sum_prompt = ZERO;
+				self.sum_late   = ZERO;
+
+				// Transition state if a state transition is required
+				if let Some(next_state) = opt_next_state { self.state = next_state; }
+				
+				result
+
+			} else { BlockResult::NotReady }
+
+		} else {
+			// Pull-In
+			BlockResult::NotReady
+		}
+		
+	}
+
+
 }
 
-#[cfg(debug_assertions)]
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
-pub struct TrackingDebug {
-	pub carrier_re:f64,
-	pub carrier_im:f64,
-	pub carrier_hz:f64,
-	pub correlation_prompt_re:f64,
-	pub correlation_prompt_im:f64,
-	pub test_stat:f64,
-}
-
-impl<A: ScalarFilter, B: ScalarFilter> Tracking<A, B> {
+impl<A: ScalarFilter> Tracking<A> {
 
 	pub fn carrier_freq_hz(&self) -> f64 { (self.carrier_dphase_rad * self.fs) / (2.0 * consts::PI) }
 	pub fn carrier_phase_rad(&self) -> f64 { self.carrier.arg() }
@@ -97,117 +200,6 @@ impl<A: ScalarFilter, B: ScalarFilter> Tracking<A, B> {
 	pub fn reset_clock(&mut self, t:f64) {
 		self.sv_tow_sec_outer.reset(t);
 		self.sv_tow_sec_inner.reset(t);
-	}
-
-	#[cfg(debug_assertions)]
-	pub fn debug(&self) -> TrackingDebug {
-		TrackingDebug {
-			carrier_re: self.carrier.re,
-			carrier_im: self.carrier.im,
-			carrier_hz: (self.carrier_dphase_rad * self.fs) / (2.0 * consts::PI),
-			correlation_prompt_re: self.sum_prompt.re,
-			correlation_prompt_im: self.sum_prompt.im,
-			test_stat: self.test_stat(),
-		}
-	}
-
-	// Public interface
-	/// Takes a sample in the form of a tuple of the complex sample itself and the sample number.  Returns a TrackingResult.
-	pub fn apply(&mut self, sample:&Sample) -> TrackingResult {
-		self.sv_tow_sec_outer.inc();
-
-		// Increment the carrier and code phase
-		self.carrier = self.carrier * self.carrier_inc;
-		self.code_phase += self.code_dphase;
-
-		// Remove the carrier from the new sample and accumulate the power sum
-		let x = sample.val * self.carrier;
-		self.input_signal_power += x.norm_sqr();
-
-		// Integrate early, prompt, and late sums
-	    let e_idx:usize = if self.code_phase < 0.5 { 20459 } else { (self.code_phase - 0.5).floor() as usize };
-	    
-	    self.sum_early  += self.local_code[e_idx%20460] * x;
-	    self.sum_prompt += self.local_code[(self.code_phase.floor() as usize)%20460] * x;
-	    self.sum_late   += self.local_code[(e_idx+1)%20460] * x;			
-		
-		if self.code_phase >= 20460.0 {
-
-			// End of a 1-ms short coherent cycle
-			self.sv_tow_sec_inner.inc();
-			self.sv_tow_sec_outer.reset(self.sv_tow_sec_inner.time());
-
-			// Update carrier tracking; carrier_error has units [radians]
-			let carrier_error = if self.sum_prompt.re == 0.0 { 0.0 } else { (self.sum_prompt.im / self.sum_prompt.re).atan() };	
-			self.carrier_dphase_rad += self.carrier_filter.apply(carrier_error);
-			self.carrier_inc = Complex{ re: self.carrier_dphase_rad.cos(), im: -self.carrier_dphase_rad.sin() };
-	
-			#[cfg(debug_assertions)]
-			eprintln!("PRN {} carrier update: carrier=({:.3e})+i({:.3e}), err={:.3e} [rad], dphase={:.3e} [rad/sample]", 
-				self.prn, self.carrier.re, self.carrier.im, carrier_error, self.carrier_dphase_rad);
-
-			// Update code tracking
-			self.code_phase -= 20460.0;
-			let code_error:f64 = {
-				let e:f64 = self.sum_early.norm();
-				let l:f64 = self.sum_late.norm();
-				if l+e == 0.0 { 0.0 } else { 0.5 * (l-e) / (l+e) }
-			};
-			self.code_dphase += self.code_filter.apply(code_error);
-			self.sv_tow_sec_outer.set_clock_rate(self.code_dphase * (self.fs.powi(2) / 1.023e6));
-
-			self.last_test_stat = self.sum_prompt.norm_sqr()  / (self.input_signal_power * self.code_len_samples);
-
-			#[cfg(debug_assertions)]
-			eprintln!("PRN {} code update: e={:.6e}, p={:.6e}, l={:.6e}, dphase={:.6e} [chips/sample]\n   test_stat={:.6}", 
-				self.prn, self.sum_early.norm(), self.sum_prompt.norm(), self.sum_late.norm(), self.code_dphase, self.last_test_stat);
-
-			let (result, opt_next_state) = match self.state {
-				TrackingState::WaitingForInitialLockStatus(mut tries_so_far) => if self.last_test_stat > TEST_STAT_THRESH_CM {
-					(TrackingResult::NotReady, Some(TrackingState::Tracking))
-				} else {
-					tries_so_far += 1;
-					if tries_so_far >= INITIAL_LOCK_ATTEMPTS {
-						(TrackingResult::Err(DigSigProcErr::LossOfLock), None)
-					} else {
-						(TrackingResult::NotReady, None)
-					}
-				},
-				TrackingState::Tracking => {
-
-					// Normalize the carrier at the end of every symbol, which is every 20 ms
-					self.carrier = self.carrier / self.carrier.norm();
-	
-					// Save the value we need for the result, then reset the long accumulators
-					// TODO: determine whether or not this applies to L2C
-					let prompt_i:f64 = self.sum_prompt.re;
-
-					// Either return an error or the next bit
-					if self.last_test_stat < TEST_STAT_THRESH_CM { 	
-						// For a long coherent processing interval, we should be over this threshold under H0 or under this
-						// threshold with H1 with a vanishingly small likelihood, i.e. this should be a very good indicator of 
-						// the lock status without any need for other filtering or anything like that
-						(TrackingResult::Err(DigSigProcErr::LossOfLock), Some(TrackingState::LostLock))
-					} else { (TrackingResult::Ok{ prompt_i, bit_idx: sample.idx }, None) }
-
-				},
-				TrackingState::LostLock => (TrackingResult::Err(DigSigProcErr::LossOfLock), None),
-			};
-
-			// Reset the short integration accumulators for the next cycle
-			self.input_signal_power = 0.0;
-			self.sum_early  = ZERO;
-			self.sum_prompt = ZERO;
-			self.sum_late   = ZERO;
-
-			// Transition state if a state transition is required
-			if let Some(next_state) = opt_next_state { self.state = next_state; }
-			
-			result
-
-		} else { TrackingResult::NotReady }
-
-		
 	}
 
 	pub fn initialize(&mut self, acq_freq_hz:f64) {
@@ -237,7 +229,7 @@ impl<A: ScalarFilter, B: ScalarFilter> Tracking<A, B> {
 
 }
 
-pub fn new_default_tracker(prn:usize, acq_freq_hz:f64, fs:f64) -> Tracking<SecondOrderFIR, SecondOrderFIR> {
+pub fn new_default_tracker(prn:usize, acq_freq_hz:f64, fs:f64) -> Tracking<SecondOrderFIR> {
 	// Create CM code and resample
 	let mut local_code:Vec<Complex<f64>> = vec![];
 	for chip in super::signal_modulation::cm_code(prn).iter() {
@@ -280,6 +272,7 @@ pub fn new_default_tracker(prn:usize, acq_freq_hz:f64, fs:f64) -> Tracking<Secon
 		sv_tow_sec_outer: IntegerClock::new(fs),		// Sample rate is still provided
 
 		last_test_stat: 0.0,
+		last_acq_result: AcquisitionResult::default(),
 
 		// Carrier and code
 		carrier, carrier_inc, carrier_dphase_rad, code_phase, code_dphase, carrier_filter, code_filter, 

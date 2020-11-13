@@ -6,10 +6,11 @@ use crate::block::block_tree_sync_static::acquire_and_track::AcquireAndTrack;
 
 use crate::filters::{SecondOrderFIR as FIR};
 use crate::gnss::common::acquisition::{two_stage_pcps::Acquisition, AcquisitionResult};
+use crate::gnss::common::tracking::TrackReport;
 use crate::gnss::gps_l1_ca::{self, pvt};
 use crate::gnss::gps_l1_ca::telemetry_decode;
 use crate::gnss::gps_l1_ca::telemetry_decode::subframe::{self, Subframe as SF, SubframeBody as SFB};
-use crate::gnss::gps_l1_ca::tracking::{self, TrackReport};
+use crate::gnss::gps_l1_ca::tracking;
 
 pub const DEFAULT_DOPPLER_STEP_HZ:usize = 50;
 pub const DEFAULT_DOPPLER_MAX_HZ:i16 = 10000;
@@ -39,7 +40,7 @@ pub struct ChannelReport {
 pub struct Channel {
 	pub prn: usize,
 	pub fs:  f64,
-	pub aat:     AcquireAndTrack<Sample, AcquisitionResult, TrackReport, Acquisition, tracking::algorithm_standard::Tracking<FIR, FIR>>,
+	pub aat:     AcquireAndTrack<Sample, AcquisitionResult, TrackReport, Acquisition, tracking::Tracking<FIR, FIR>>,
 	pub tlm:     telemetry_decode::TelemetryDecoder,
 	pub last_acq_doppler:   f64,
 	pub last_acq_test_stat: f64,
@@ -200,7 +201,7 @@ impl Channel {
 pub fn new_channel(prn:usize, fs:f64, test_stat_threshold:f64, pvt_rate_samples:usize) -> Channel { 
 	let symbol:Vec<i8> = gps_l1_ca::signal_modulation::prn_int_sampled(prn, fs);
 	let acq = Acquisition::new(symbol, fs, prn, 9, 3, 50.0, test_stat_threshold, 8);
-	let trk = tracking::algorithm_standard::new_2nd_order_tracker(prn, 0.0, fs, 0.0, 0.0);
+	let trk = tracking::new_2nd_order_tracker(prn, 0.0, fs, 0.0, 0.0);
 	let tlm = telemetry_decode::TelemetryDecoder::new();
 
 	let aat = AcquireAndTrack::new(acq, trk);

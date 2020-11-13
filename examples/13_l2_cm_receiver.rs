@@ -1,21 +1,16 @@
 
-extern crate clap;
-extern crate colored;
-extern crate dirs;
 extern crate nalgebra as na;
-extern crate rust_radio;
-extern crate rustfft;
-extern crate serde;
 
 use std::fs::File;
 
 use clap::{Arg, App};
 use colored::*;
 use rust_radio::{io::BufferedSource, Sample};
+use rust_radio::block::{BlockFunctionality, BlockResult};
 use rust_radio::gnss::common::acquisition::two_stage_pcps;
 use rust_radio::gnss::gps_l2c::{signal_modulation, L2_CM_PERIOD_SEC};
 use rust_radio::gnss::gps_l2c::tlm_decode::{error_correction, preamble_and_crc, message_decode};
-use rust_radio::gnss::gps_l2c::tracking_cm::{self, TrackingResult};
+use rust_radio::gnss::gps_l2c::tracking_cm;
 use rustfft::num_complex::Complex;
 
 const MAX_ACQ_TRIES_SAMPLES:usize = 2000000;
@@ -125,9 +120,9 @@ fn main() {
 			ChannelState::Tracking{ mut tried_skip } => {
 
 				match trk.apply(&s) {
-					TrackingResult::Ok{ prompt_i, bit_idx:_ } => {
+					BlockResult::Ready(report) => {
 
-						symbols.push(prompt_i > 0.0);
+						symbols.push(report.prompt_i > 0.0);
 						if symbols.len() == FEC_DECODE_LEN {
 							let opt_decoded_bits = error_correction::decode(symbols.drain(..).collect());
 							match opt_decoded_bits {
@@ -155,7 +150,7 @@ fn main() {
 										Some(ChannelState::LostLock)
 									} else {
 										// Try skipping a symbol if this doesn't work the first time; we don't know if we started on a G1 or G2 symbol
-										symbols.push(prompt_i > 0.0);
+										symbols.push(report.prompt_i > 0.0);
 										tried_skip = true;
 										None
 									}
@@ -167,12 +162,12 @@ fn main() {
 						}
 
 					},
-					TrackingResult::Err(e) => {
+					BlockResult::Err(e) => {
 						eprintln!("PRN {:02} {}", prn, format!("ERR: {:?}", e).red());
 
 						Some(ChannelState::LostLock)
 					}
-					TrackingResult::NotReady => None
+					BlockResult::NotReady => None
 				}
 
 			},

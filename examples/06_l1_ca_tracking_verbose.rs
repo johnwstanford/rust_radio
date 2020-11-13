@@ -20,9 +20,9 @@ use rust_radio::block::block_tree_sync_static::acquire_and_track::AcquireAndTrac
 use rust_radio::block::block_tree_sync_static::split_and_merge::RotatingSplitAndMerge;
 use rust_radio::{io::BufferedSource, Sample};
 use rust_radio::gnss::common::acquisition::two_stage_pcps;
+use rust_radio::gnss::common::tracking::TrackReport;
 use rust_radio::gnss::gps_l1_ca;
-use rust_radio::gnss::gps_l1_ca::tracking::TrackReport;
-use rust_radio::gnss::gps_l1_ca::tracking::algorithm_standard::{self, TrackingDebug};
+use rust_radio::gnss::gps_l1_ca::tracking::{self, TrackingDebug};
 
 #[tokio::main]
 pub async fn main() -> Result<(), &'static str> {
@@ -118,7 +118,7 @@ pub async fn main() -> Result<(), &'static str> {
 		let symbol:Vec<i8> = gps_l1_ca::signal_modulation::prn_int_sampled(prn, fs);
 		let acq = two_stage_pcps::Acquisition::new(symbol, fs, prn, 9, 3, 50.0, 0.008, 8);
 
-		let trk = algorithm_standard::new_2nd_order_tracker(prn, 0.0, fs, 0.0, 0.0);
+		let trk = tracking::new_2nd_order_tracker(prn, 0.0, fs, 0.0, 0.0);
 
 		AcquireAndTrack::new(acq, trk)
 
@@ -144,7 +144,7 @@ pub async fn main() -> Result<(), &'static str> {
 		match blk_result {
 			BlockResult::Ready(report) => {
 				let s =	format!("{:6.2} [sec], PRN {:02}, test_stat={:.5}, {:6.2} [kHz], {:.3e}", 
-					(report.sample_idx as f64)/fs, report.prn, report.test_stat, report.freq_hz*1.0e-3, report.prompt_i);
+					(report.sample_idx as f64)/fs, report.id, report.test_stat, report.freq_hz*1.0e-3, report.prompt_i);
 				if      report.test_stat > 0.04 { eprintln!("{}", s.green());  }
 				else if report.test_stat > 0.02 { eprintln!("{}", s.yellow()); }
 				else                            { eprintln!("{}", s.red());    }

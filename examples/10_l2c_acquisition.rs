@@ -1,38 +1,58 @@
 
-extern crate clap;
-extern crate colored;
-extern crate dirs;
 extern crate nalgebra as na;
-extern crate rust_radio;
-extern crate rustfft;
-extern crate serde;
 
 use std::fs::File;
 
 use clap::{Arg, App};
 use colored::*;
-use rust_radio::{io::BufferedSource, Sample};
-use rust_radio::gnss::common::acquisition::{self, fast_pcps, basic_pcps};
-use rust_radio::gnss::gps_l2c::signal_modulation;
-use rustfft::num_complex::Complex;
-use serde::{Serialize, Deserialize};
 
-#[derive(Debug, Serialize, Deserialize)]
-struct AcquisitionRecord {
-	pub prn:usize,
-	pub doppler_hz:f64,
-	pub code_phase:usize,
-	pub test_statistic:f64,
-	pub cl_doppler_hz:Option<f64>,
-	pub cl_code_phase:Option<usize>,
-	pub cl_test_statistic:Option<f64>,
-	pub cl_carrier_phase:Option<f64>,
-}
+use rustfft::num_complex::Complex;
+// use serde::{Serialize, Deserialize};
+
+use rust_radio::block::{BlockFunctionality, BlockResult};
+use rust_radio::block::block_tree_sync_static::split_and_merge::SplitAndMerge;
+use rust_radio::{io::BufferedSource, Sample};
+use rust_radio::gnss::common::acquisition::{self, fast_pcps, basic_pcps, AcquisitionResult};
+use rust_radio::gnss::gps_l2c::signal_modulation;
 
 const L2_CM_PERIOD_SEC:f64 = 20.0e-3;
 const L2_CL_PERIOD_SEC:f64 = 1.5;
 
-fn main() {
+struct AcqL2 {
+	acq_cm: fast_pcps::Acquisition,
+	acq_cl: basic_pcps::Acquisition,
+	opt_cl_result: Option<AcquisitionResult>,
+}
+
+impl BlockFunctionality<(), (), Sample, (AcquisitionResult, Option<AcquisitionResult>)> for AcqL2 {
+
+	fn control(&mut self, _:&()) -> Result<(), &'static str> {
+		Ok(())
+	}
+
+	fn apply(&mut self, input:&Sample) -> BlockResult<(AcquisitionResult, Option<AcquisitionResult>)> {
+		self.acq_cm.provide_sample(input).unwrap();
+		self.acq_cl.provide_sample(input).unwrap();
+
+		self.opt_cl_result = self.acq_cl.block_for_result().unwrap();
+
+		match self.acq_cm.block_for_result() {
+			Ok(Some(result)) => {
+				self.acq_cl.doppler_freqs = (-20..=20).map(|dfreq| result.doppler_hz + (dfreq as f64)).collect();
+
+				let opt_cl_result = self.opt_cl_result.clone();
+				self.opt_cl_result = None;
+
+				BlockResult::Ready((result, opt_cl_result))
+			},
+			Ok(None)         => BlockResult::NotReady,
+			Err(e)           => BlockResult::Err(e)
+		}
+	}
+
+}
+
+pub fn main() -> Result<(), &'static str> {
 
 	let matches = App::new("GPS L2C Acquisition")
 		.version("0.1.0")
@@ -53,11 +73,11 @@ fn main() {
 
 	let fname:&str = matches.value_of("filename").unwrap();
 	let fs = matches.value_of("sample_rate_sps").unwrap().parse().unwrap();
+	let src:BufferedSource<File, (i16, i16)> = BufferedSource::new(File::open(fname).unwrap()).unwrap();
 
 	eprintln!("Decoding {} at {} [samples/sec]", &fname, &fs);
 
-	let mut acqs:Vec<(fast_pcps::Acquisition, basic_pcps::Acquisition)> = (1..=32).map( |prn| {
-
+	let mut sam = SplitAndMerge::from_iter((1..=32).map( |prn| {
 		// Create CM code and resample
 		let cm_code:[bool; 10230] = signal_modulation::cm_code(prn);
 		let n_samples:usize = (fs * L2_CM_PERIOD_SEC as f64) as usize;		// [samples/sec] * [sec]
@@ -71,7 +91,7 @@ fn main() {
 			}
 		}
 
-		let acq_cm = acquisition::make_acquisition(symbol_cm, fs, prn, 140, 5, 0.0, 0);
+		let acq_cm = acquisition::make_acquisition(symbol_cm, fs, prn, 140, 3, 0.0, 0);
 
 		// Create CL code and resample
 		let cl_code:[bool; 767250] = signal_modulation::cl_code(prn);
@@ -88,64 +108,47 @@ fn main() {
 
 		let acq_cl = acquisition::basic_pcps::Acquisition::new(symbol_cl, fs, prn, 0.0, vec![-2.0, -1.0, 0.0, 1.0, 2.0]);
 
-		(acq_cm, acq_cl)
-	}).collect();
+		AcqL2{ acq_cm, acq_cl, opt_cl_result: None }
 
-	let mut all_records:Vec<AcquisitionRecord> = vec![];
+	}));
 
-	let src:BufferedSource<File, (i16, i16)> = BufferedSource::new(File::open(fname).unwrap()).unwrap();
+	// let mut all_records:Vec<AcquisitionRecord> = vec![];
+
 	for s in src.map(|(x, idx)| Sample{ val: Complex{ re: x.0 as f64, im: x.1 as f64 }, idx}) {
 
-		for (acq_cm, acq_cl) in &mut acqs {
-			let prn:usize = acq_cm.prn;
-			acq_cm.provide_sample(&s).unwrap();
-			acq_cl.provide_sample(&s).unwrap();
+		// Send this sample to the split-and-merge block
+		if let BlockResult::Ready((cm_result, opt_cl_result)) = sam.apply(&s) {
+			let result_str = format!("{:9.2} [Hz], {:6} [samples], {:.8}", cm_result.doppler_hz, cm_result.code_phase, cm_result.test_statistic());
+			let time:f64 = cm_result.sample_idx as f64 / fs;
+			if cm_result.test_statistic() < 0.001 {
+				eprint!("{:6.2} [sec], PRN {:02} CM {}", time, cm_result.id, result_str.red());
+			} else if cm_result.test_statistic() < 0.003 {
+				eprint!("{:6.2} [sec], PRN {:02} CM {}", time, cm_result.id, result_str.yellow());
+			} else {
+				eprint!("{:6.2} [sec], PRN {:02} CM {}", time, cm_result.id, result_str.green());
+			}								
 
-			match acq_cm.block_for_result() {
-				Ok(Some(result)) => {
-					acq_cl.doppler_freqs = (-48..48).map(|x| ((x as f64) * 0.25) + result.doppler_hz).collect();
-					let record = match acq_cl.block_for_result() {
-						Ok(Some(result_cl)) => {
-							eprintln!("PRN {:02} {}, {}", prn, 
-								format!("CM: {:6} [Hz], {:6} [chips], {:.8}", result.doppler_hz, result.code_phase, result.test_statistic()).yellow(), 
-								format!("CL: {:8.2} [Hz], {:7} [chips], {:.8}, {:6.3} [radians]", result_cl.doppler_hz, result_cl.code_phase, result_cl.test_statistic(), result_cl.mf_response.arg()).green());
-							AcquisitionRecord { 
-								prn, 
-								doppler_hz:        result.doppler_hz, 
-								code_phase:        result.code_phase, 
-								test_statistic:    result.test_statistic(),
-								cl_doppler_hz:     Some(result_cl.doppler_hz),
-								cl_code_phase:     Some(result_cl.code_phase),
-								cl_test_statistic: Some(result_cl.test_statistic()),
-								cl_carrier_phase:  Some(result_cl.mf_response.arg()),
-							}
-						},
-						_ => {
-							eprintln!("PRN {:02} {}", prn, 
-								format!("CM: {:6} [Hz], {:6} [chips], {:.8}", result.doppler_hz, result.code_phase, result.test_statistic()).yellow());
-							AcquisitionRecord { 
-								prn, 
-								doppler_hz:        result.doppler_hz, 
-								code_phase:        result.code_phase, 
-								test_statistic:    result.test_statistic(),
-								cl_doppler_hz:     None,
-								cl_code_phase:     None,
-								cl_test_statistic: None,
-								cl_carrier_phase:  None,
-							}
-						},
-					};
+			if let Some(cl_result) = opt_cl_result {
+				let result_str = format!("{:9.2} [Hz], {:6} [samples], {:.8}", cl_result.doppler_hz, cl_result.code_phase, cl_result.test_statistic());
+				if cl_result.test_statistic() < 0.00001 {
+					eprint!(", CL {}", result_str.red());
+				} else if cl_result.test_statistic() < 0.001 {
+					eprint!(", CL {}", result_str.yellow());
+				} else {
+					eprint!(", CL {}", result_str.green());
+				}							
 
-					all_records.push(record)
-				},
-				Err(msg) => eprintln!("PRN {}: Error, {:?}", prn, msg),
-				Ok(None) => {},
 			}
+
+			eprint!("\n");
 		}
+
 
 	}
 
 	// Output data in JSON format
-	println!("{}", serde_json::to_string_pretty(&all_records).unwrap());
+	// println!("{}", serde_json::to_string_pretty(&all_records).unwrap());
+
+	Ok(())
 
 }

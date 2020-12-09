@@ -1,11 +1,11 @@
 
 use ::num_complex::Complex;
-use crate::types::even_odd_slice::{self, EvenOddSlice};
+use crate::types::even_odd_iter::EvenOddIter;
 
-pub fn fft(x: &Vec<Complex<f64>>) -> Vec<Complex<f64>> { fft_k(even_odd_slice::new(&x), -1.0) }
-pub fn ifft(x: &Vec<Complex<f64>>) -> Vec<Complex<f64>> { fft_k(even_odd_slice::new(&x), 1.0).iter().map(|c| c / (x.len() as f64)).collect() }
+pub fn fft(x: &[Complex<f64>])  -> Vec<Complex<f64>> { fft_k(EvenOddIter::from(x), -1.0) }
+pub fn ifft(x: &[Complex<f64>]) -> Vec<Complex<f64>> { fft_k(EvenOddIter::from(x), 1.0).iter().map(|c| c / (x.len() as f64)).collect() }
 
-fn fft_k(mut x:EvenOddSlice<Complex<f64>>, sign:f64) -> Vec<Complex<f64>> {
+fn fft_k(mut x:EvenOddIter<Complex<f64>>, sign:f64) -> Vec<Complex<f64>> {
     let n = x.len();
     if n%2 == 0 {
 	    let ek = fft_k(x.even(), sign);

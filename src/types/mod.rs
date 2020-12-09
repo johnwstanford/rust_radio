@@ -1,2 +1,2 @@
 
-pub mod even_odd_slice;
+pub mod even_odd_iter;

@@ -1,4 +1,6 @@
 
+use num_complex::Complex;
+
 use crate::{Sample, DigSigProcErr as DSPErr};
 
 use crate::block::{BlockFunctionality, BlockResult};
@@ -199,7 +201,8 @@ impl Channel {
 }
 
 pub fn new_channel(prn:usize, fs:f64, test_stat_threshold:f64, pvt_rate_samples:usize) -> Channel { 
-	let symbol:Vec<i8> = gps_l1_ca::signal_modulation::prn_int_sampled(prn, fs);
+	let symbol_i8:Vec<i8> = gps_l1_ca::signal_modulation::prn_int_sampled(prn, fs);
+	let symbol:Vec<Complex<f64>> = symbol_i8.into_iter().map(|x| Complex{ re: x as f64, im: 0.0 }).collect();
 	let acq = Acquisition::new(symbol, fs, prn, 9, 3, 50.0, test_stat_threshold, 8);
 	let trk = tracking::new_2nd_order_tracker(prn, 0.0, fs, 0.0, 0.0);
 	let tlm = telemetry_decode::TelemetryDecoder::new();

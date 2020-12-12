@@ -90,7 +90,7 @@ pub async fn main() -> Result<(), &'static str> {
 
 		let symbol:Vec<i8> = gps_l1_ca::signal_modulation::prn_int_sampled(prn, fs);
 		
-		Acquisition::new(symbol, fs, prn, 9, 3, 50.0, 0.008, 8)
+		Acquisition::new(symbol.into_iter().map(|x| Complex{ re: x as f64, im: 0.0 }).collect(), fs, prn, 9, 3, 50.0, 0.008, 8)
 	
 	}));
 

@@ -91,7 +91,8 @@ pub fn main() -> Result<(), &'static str> {
 			}
 		}
 
-		let acq_cm = acquisition::make_acquisition(symbol_cm, fs, prn, 140, 3, 0.0, 0);
+		let acq_cm = acquisition::make_acquisition(symbol_cm.into_iter().map(|x| Complex{ re: x as f64, im: 0.0 }).collect(), 
+			fs, prn, 140, 3, 0.0, 0);
 
 		// Create CL code and resample
 		let cl_code:[bool; 767250] = signal_modulation::cl_code(prn);
@@ -106,7 +107,8 @@ pub fn main() -> Result<(), &'static str> {
 			}
 		}
 
-		let acq_cl = acquisition::basic_pcps::Acquisition::new(symbol_cl, fs, prn, 0.0, vec![-2.0, -1.0, 0.0, 1.0, 2.0]);
+		let acq_cl = acquisition::basic_pcps::Acquisition::new(symbol_cl.into_iter().map(|x| Complex{ re: x as f64, im: 0.0 }).collect(), 
+			fs, prn, 0.0, vec![-2.0, -1.0, 0.0, 1.0, 2.0]);
 
 		AcqL2{ acq_cm, acq_cl, opt_cl_result: None }
 

@@ -71,7 +71,7 @@ fn main() {
 			}
 		}
 
-		two_stage_pcps::Acquisition::new(symbol_cm, fs, prn, 140, 2, 1.0, 0.0005, 0)
+		two_stage_pcps::Acquisition::new(symbol_cm.into_iter().map(|x| Complex{ re: x as f64, im: 0.0 }).collect(), fs, prn, 140, 2, 1.0, 0.0005, 0)
 	};
 
 	let mut acq_cl: basic_pcps::Acquisition = {
@@ -88,7 +88,7 @@ fn main() {
 			}
 		}
 
-		basic_pcps::Acquisition::new(symbol_cl, fs, prn, 0.00000075, vec![0.0])
+		basic_pcps::Acquisition::new(symbol_cl.into_iter().map(|x| Complex{ re: x as f64, im: 0.0 }).collect(), fs, prn, 0.00000075, vec![0.0])
 	};
 
 	let mut trk = tracking_cl::new_default_tracker(prn, 0.0, fs);

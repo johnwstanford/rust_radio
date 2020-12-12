@@ -55,7 +55,7 @@ fn main() -> Result<(), &'static str> {
 	let mut sam = RotatingSplitAndMerge::from_iter((1..=32).map( |prn| {
 
 		let symbol:Vec<i8> = gps_l1_ca::signal_modulation::prn_int_sampled(prn, fs);
-		let acq = two_stage_pcps::Acquisition::new(symbol, fs, prn, 9, 3, 50.0, 0.008, 8);
+		let acq = two_stage_pcps::Acquisition::new(symbol.into_iter().map(|x| Complex{ re: x as f64, im: 0.0 }).collect(), fs, prn, 9, 3, 50.0, 0.008, 8);
 		let trk = tracking::new_1st_order_tracker(prn, 0.0, fs, 0.85, 0.55);
 
 		let aat = AcquireAndTrack::new(acq, trk);

@@ -84,7 +84,7 @@ pub async fn main() -> Result<(), &'static str> {
 				}
 			}
 
-			two_stage_pcps::Acquisition::new(symbol_cm, fs, prn, 140, 2, 2.0, 0.0005, 0)
+			two_stage_pcps::Acquisition::new(symbol_cm.into_iter().map(|x| Complex{ re: x as f64, im: 0.0 }).collect(), fs, prn, 140, 2, 2.0, 0.0005, 0)
 		};
 
 		// Tracking

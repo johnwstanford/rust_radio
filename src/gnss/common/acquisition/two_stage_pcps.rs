@@ -1,4 +1,6 @@
 
+use num_complex::Complex;
+
 use crate::{Sample, DigSigProcErr as DSPErr};
 use crate::block::{BlockFunctionality, BlockResult};
 
@@ -36,7 +38,7 @@ impl BlockFunctionality<(), (), Sample, AcquisitionResult> for Acquisition {
 }
 
 impl Acquisition {
-	pub fn new(symbol:Vec<i8>, fs:f64, prn:usize, n_coarse:usize, n_fine:usize, stage_two_resolution_hz:f64, test_statistic_threshold:f64, n_skip:usize) -> Acquisition {
+	pub fn new(symbol:Vec<Complex<f64>>, fs:f64, prn:usize, n_coarse:usize, n_fine:usize, stage_two_resolution_hz:f64, test_statistic_threshold:f64, n_skip:usize) -> Acquisition {
 		let state = State::StageOne;
 		let stage_one = super::make_acquisition(symbol.clone(), fs, prn, n_coarse, n_fine, test_statistic_threshold, n_skip);
 		let stage_two = super::basic_pcps::Acquisition::new(symbol, fs, prn, 0.0, vec![]);

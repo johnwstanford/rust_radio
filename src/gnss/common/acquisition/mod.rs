@@ -1,7 +1,8 @@
 
+use num_complex::Complex;
+use num_traits::Zero;
+
 use rustfft::FFTplanner;
-use rustfft::num_complex::Complex;
-use rustfft::num_traits::Zero;
 
 use serde::{Serialize, Deserialize};
 
@@ -27,12 +28,12 @@ impl AcquisitionResult {
 
 }
 
-pub fn make_acquisition(symbol:Vec<i8>, fs:f64, prn:usize, n_coarse:usize, n_fine:usize, test_statistic_threshold:f64, n_skip:usize) -> fast_pcps::Acquisition {
+pub fn make_acquisition(symbol:Vec<Complex<f64>>, fs:f64, prn:usize, n_coarse:usize, n_fine:usize, test_statistic_threshold:f64, n_skip:usize) -> fast_pcps::Acquisition {
 
 	let len_fft:usize = symbol.len();
 
 	// Forward FFT
-	let mut local_code_time_domain: Vec<Complex<f64>> = symbol.into_iter().map(|b| Complex{ re: b as f64, im: 0.0 }).collect();
+	let mut local_code_time_domain: Vec<Complex<f64>> = symbol.clone();
 	let mut fft_out: Vec<Complex<f64>> = vec![Complex::zero(); len_fft];
 	let mut planner = FFTplanner::new(false);
 	let fft = planner.plan_fft(len_fft);

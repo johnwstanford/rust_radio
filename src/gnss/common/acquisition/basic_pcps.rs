@@ -46,12 +46,12 @@ impl BlockFunctionality<(), (), Sample, AcquisitionResult> for Acquisition {
 
 impl Acquisition {
 
-	pub fn new(symbol:Vec<i8>, fs:f64, prn:usize, test_statistic_threshold:f64, doppler_freqs:Vec<f64>) -> Self {
+	pub fn new(symbol:Vec<Complex<f64>>, fs:f64, prn:usize, test_statistic_threshold:f64, doppler_freqs:Vec<f64>) -> Self {
 
 		let len_fft:usize = symbol.len();
 
 		// Forward FFT
-		let mut local_code_time_domain: Vec<Complex<f64>> = symbol.into_iter().map(|b| Complex{ re: b as f64, im: 0.0 }).collect();
+		let mut local_code_time_domain: Vec<Complex<f64>> = symbol.clone();
 		let mut fft_out: Vec<Complex<f64>> = vec![Complex::zero(); len_fft];
 		let mut planner = FFTplanner::new(false);
 		let fft = planner.plan_fft(len_fft);

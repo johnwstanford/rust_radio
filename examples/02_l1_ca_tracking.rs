@@ -101,8 +101,8 @@ pub async fn main() -> Result<(), &'static str> {
 			let tune_result = usrp.set_rx_freq(&tune_request, 0)?;
 			eprintln!("Tune Result: {:#?}", tune_result);
 
-			usrp.start_continuous_stream::<i16, i16>("")?;
-			Box::new(BufferedSource::new(usrp).unwrap())
+			let rx_streamer = usrp.start_continuous_stream::<i16, i16>("")?;
+			Box::new(BufferedSource::new(rx_streamer).unwrap())
 		}
 	};
 

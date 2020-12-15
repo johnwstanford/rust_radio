@@ -9,6 +9,17 @@ use rustfft::FFTplanner;
 
 use rand_distr::{Distribution, Normal};
 
+#[link(name="fftw3")]
+extern {
+
+	fn fftw_malloc(size:usize) -> *mut Complex<f64>;
+	fn fftw_free(handle:*mut Complex<f64>);
+
+	fn fftw_plan_dft_1d(n:isize, input:*mut Complex<f64>, output:*mut Complex<f64>, sign:isize, flags:usize) -> usize;
+	fn fftw_execute(plan:usize);
+	fn fftw_destroy_plan(plan:usize);
+}
+
 fn main() -> Result<(), &'static str> {
 	
 	let matches = App::new("FFT Performance Test")
@@ -38,21 +49,59 @@ fn main() -> Result<(), &'static str> {
 		// Time
 		let start = Instant::now();
 		fft.process(&mut time_domain, &mut fft_out);
-		start.elapsed().as_secs_f64()
+		let ans = start.elapsed().as_secs_f64();
+
+		println!("rustfft freq domain    = [{:?}, ...]", fft_out[0]);
+
+		ans
 	};
 
-	/* Algorithm 1: Rust Radio */
+	/* Algorithm 2: Rust Radio */
 	let time2:f64 = {
-		let mut time_domain = time_domain.clone();
+		let time_domain = time_domain.clone();
 
 		// Time
 		let start = Instant::now();
-		let _freq_domain = rust_radio::fourier_analysis::fft(&time_domain);
-		start.elapsed().as_secs_f64()
+		let freq_domain = rust_radio::fourier_analysis::fft(&time_domain);
+		let ans:f64 = start.elapsed().as_secs_f64();
+
+		println!("Rust Radio freq domain = [{:?}, ...]", freq_domain[0]);
+
+		ans
+	};
+
+	/* Algorithm 3: FFTW */
+	let time3:f64 = unsafe {
+		let h_in:*mut Complex<f64> = fftw_malloc(std::mem::size_of::<(f64, f64)>() * size_fft);
+		let h_out:*mut Complex<f64> = fftw_malloc(std::mem::size_of::<(f64, f64)>() * size_fft);
+
+		let in_slice:&mut [Complex<f64>] = std::slice::from_raw_parts_mut(h_in, size_fft);
+		let out_slice:&mut [Complex<f64>] = std::slice::from_raw_parts_mut(h_out, size_fft);
+
+		let p = fftw_plan_dft_1d(size_fft as isize, h_in, h_out, 1, 0);
+
+		for idx in 0..size_fft {
+			in_slice[idx] = time_domain[idx].clone();	
+		}
+
+		// Time
+		let start = Instant::now();
+		fftw_execute(p);
+		let ans:f64 = start.elapsed().as_secs_f64();
+
+		println!("FFTW freq domain       = [{:?}, ...]", out_slice[0]);
+
+		// Cleanup
+		fftw_destroy_plan(p);
+		fftw_free(h_in);
+		fftw_free(h_out);
+
+		ans
 	};
 
 	println!("rustfft:    {:?}", time1);
 	println!("Rust Radio: {:?}", time2);
+	println!("FFTW:       {:?}", time3);
 
 	Ok(())
 

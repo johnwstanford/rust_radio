@@ -1,6 +1,42 @@
 
-use ::num_complex::Complex;
+use std::sync::Arc;
+
+use num_complex::Complex;
+use num_traits::Zero;
+
+use rustfft::{FFT as FFTtrait};
+use rustfft::FFTplanner;
+
 use crate::types::even_odd_iter::EvenOddIter;
+
+#[derive(Clone, Copy, PartialEq)]
+pub enum Direction { Forward = -1, Inverse = 1 }
+
+// Simpler interface around RustFFT
+pub struct FFT {
+	input: Vec<Complex<f64>>,
+	output: Vec<Complex<f64>>,
+	fft: Arc<dyn FFTtrait<f64>>,
+}
+
+impl FFT {
+
+	pub fn new(n:usize, direction:Direction) -> Self {
+		let input: Vec<Complex<f64>>  = vec![Complex::zero(); n];
+		let output: Vec<Complex<f64>> = vec![Complex::zero(); n];
+		let mut planner = FFTplanner::new(direction == Direction::Inverse);
+		let fft = planner.plan_fft(n);
+		Self{ input, output, fft }
+
+	}
+
+	pub fn execute(&mut self, data:&[Complex<f64>]) -> Vec<Complex<f64>> {
+		self.input.clone_from_slice(data);
+		self.fft.process(&mut self.input, &mut self.output);
+		self.output.clone()
+	}
+
+}
 
 pub fn fft(x: &[Complex<f64>])  -> Vec<Complex<f64>> { fft_k(EvenOddIter::from(x), -1.0) }
 pub fn ifft(x: &[Complex<f64>]) -> Vec<Complex<f64>> { fft_k(EvenOddIter::from(x), 1.0).iter().map(|c| c / (x.len() as f64)).collect() }

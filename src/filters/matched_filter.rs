@@ -1,129 +1,100 @@
 
-use std::f64::consts;
-use std::sync::Arc;
+use num_complex::Complex;
+use num_traits::Zero;
 
-use rustfft::FFT;
-use rustfft::FFTplanner;
-use rustfft::num_complex::Complex;
-use rustfft::num_traits::Zero;
-
-use serde::{Serialize, Deserialize};
-
-use crate::Sample;
-
-pub struct MatchedFilterResult {
-	pub doppler_hz:f64,
-	pub input_power_total:f64,
-	pub response:Vec<Complex<f64>>
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct MatchedFilterTestStatResult {
-	pub max_idx:usize,
-	pub test_stat:f64,
-}
-
-impl MatchedFilterResult {
-
-	pub fn test_statistic(&self) -> MatchedFilterTestStatResult { 
-		// Find the best result
-		let (max_idx, max_response) = (&self.response).into_iter().enumerate().max_by_key(|(_, resp)| (resp.norm_sqr() * 10000.0) as usize ).unwrap();
-
-		let test_stat:f64 = max_response.norm_sqr() / (self.input_power_total * (self.response.len() as f64));
-
-		MatchedFilterTestStatResult{ max_idx, test_stat }
-	}
-
-}
+use crate::fourier_analysis::{Direction, FFT};
 
 pub struct MatchedFilter {
-	// Specified during struct creation
-	pub fs:f64, pub freq_shift:f64,
-
-	// Derived from arguments to struct creation that remain constant after being calculated once
-	pub len_fft:usize,
-	pub carrier_inc:Complex<f64>,
-	pub symbol_freq_domain:Vec<Complex<f64>>,
-
-	// Updated on every sample
-	pub buffer:Vec<Complex<f64>>,
-	pub carrier:Complex<f64>,
-
-	// Used once the buffer is full
-	pub fft:Arc<dyn FFT<f64>>,
-	pub fft_out:  Vec<Complex<f64>>,
-	pub ifft:Arc<dyn FFT<f64>>,
-	pub ifft_out: Vec<Complex<f64>>,
+	n: usize,
+	fwd:  FFT,
+	inv: FFT,
+	waveform_freq_domain_conj: Vec<Complex<f64>>,
+	filter_power: f64,
 }
 
 impl MatchedFilter {
 
-	pub fn new(symbol:Vec<i8>, fs:f64, freq_shift:f64) -> Self {
+	pub fn new(waveform_time_domain:&[Complex<f64>]) -> Self {
+		let n = waveform_time_domain.len();
+		let mut fwd  = FFT::new(n, Direction::Forward);
+		let inv = FFT::new(n, Direction::Inverse);
 
-		let len_fft:usize = symbol.len();
-		let phase_step_rad:f64 = (-2.0 * consts::PI * freq_shift) / fs;
-		let carrier_inc = Complex{ re: phase_step_rad.cos(), im: phase_step_rad.sin() };
+		let filter_power:f64 = waveform_time_domain.iter().map(|x| x.norm_sqr()).sum();
+		let waveform_freq_domain:Vec<Complex<f64>> = fwd.execute(&waveform_time_domain);
+		let waveform_freq_domain_conj = waveform_freq_domain.into_iter().map(|x| x.conj()).collect();
 
-		// Forward FFT
-		let mut symbol_time_domain: Vec<Complex<f64>> = symbol.into_iter().map(|b| Complex{ re: b as f64, im: 0.0 }).collect();
-		let mut fft_out: Vec<Complex<f64>> = vec![Complex::zero(); len_fft];
-		let mut planner = FFTplanner::new(false);
-		let fft = planner.plan_fft(len_fft);
-		fft.process(&mut symbol_time_domain, &mut fft_out);
-
-		let symbol_freq_domain: Vec<Complex<f64>> = (&fft_out).into_iter().map(|p| p.conj() ).collect();
-
-		// Inverse FFT
-		let mut inv_planner = FFTplanner::new(true);
-		let ifft = inv_planner.plan_fft(len_fft);
-		let mut ifft_out: Vec<Complex<f64>> = vec![Complex::zero(); len_fft];
-		ifft.process(&mut fft_out, &mut ifft_out);
-
-		let buffer:Vec<Complex<f64>> = vec![];
-		let carrier = Complex{ re: 1.0, im: 0.0 };
-
-		Self { fs, freq_shift, len_fft, carrier_inc, symbol_freq_domain, buffer, carrier, fft, fft_out, ifft, ifft_out}
+		MatchedFilter { n, fwd, inv, waveform_freq_domain_conj, filter_power }
 	}
 
-	pub fn apply(&mut self, sample:&Sample) -> Option<MatchedFilterResult> {
-		self.buffer.push(sample.val * self.carrier);
-		self.carrier = self.carrier * self.carrier_inc;
+	pub fn simple_pulse(freq_hz:f64, n:usize, n_pad:usize, sample_rate_sps:f64) -> Self {
+		let rad_per_sec = freq_hz * 2.0 * std::f64::consts::PI;
+		let rad_per_samp = rad_per_sec / sample_rate_sps;
+		let mut waveform:Vec<Complex<f64>> = (0..n).map(|i| {
+			let phase:f64 = (i as f64) * rad_per_samp;
+			Complex{ re: phase.cos(), im: phase.sin() }
+		}).collect();
 
-		if self.buffer.len() >= self.len_fft {
-
-			// Normalize carrier
-			self.carrier = self.carrier / self.carrier.norm();
-
-			// Drain signal from buffer and find total power
-			let mut signal:Vec<Complex<f64>> = self.buffer.drain(..self.len_fft).collect();
-
-			let input_power_total:f64 = signal.iter().map(|c| c.re*c.re + c.im*c.im).sum();
-
-			// Run the forward FFT
-			self.fft.process(&mut signal, &mut self.fft_out);
-
-			// Perform multiplication in the freq domain, which is convolution in the time domain
-			let mut convolution_freq_domain:Vec<Complex<f64>> = (&self.fft_out).into_iter()
-				.zip((&self.symbol_freq_domain).into_iter())
-				.map( |(a,b)| a*b )
-				.collect();
-
-			// Run the inverse FFT to get correlation in the time domain
-			self.ifft.process(&mut convolution_freq_domain, &mut self.ifft_out);
-			
-			let ans = MatchedFilterResult {
-				response: self.ifft_out.iter().map(|c| c / (self.len_fft as f64)).collect(),
-				doppler_hz: self.freq_shift,
-				input_power_total
-			};
-
-			Some(ans)
-
-		} else {
-			// Buffer isn't full yet, so there's no result to return
-			None
+		while waveform.len() < n_pad {
+			waveform.push(Complex::zero());
 		}
 
+		Self::new(&waveform)
+
 	}
+
+	pub fn len(&self) -> usize {
+		self.n
+	}
+
+	pub fn apply(&mut self, signal_time_domain:&[Complex<f64>]) -> Result<MatchedFilterResponse, &'static str> {
+		if signal_time_domain.len() != self.n {
+			Err("Wrong-sized input for matched filter")
+		} else {
+			let signal_power:f64 = signal_time_domain.iter().map(|x| x.norm_sqr()).sum();
+
+			let signal_freq_domain:Vec<Complex<f64>> = self.fwd.execute(signal_time_domain);
+
+			let correlation_freq_domain:Vec<Complex<f64>> = signal_freq_domain.iter().zip(self.waveform_freq_domain_conj.iter()).map(|(a,b)| a*b).collect();
+			let correlation_time_domain:Vec<Complex<f64>> = self.inv.execute(&correlation_freq_domain);
+
+			Ok(MatchedFilterResponse{ correlation_time_domain:correlation_time_domain.clone(), signal_power, filter_power: self.filter_power })
+		}
+	}
+
 }
 
+pub struct MatchedFilterResponse {
+	pub correlation_time_domain: Vec<Complex<f64>>,
+	pub signal_power: f64,
+	pub filter_power: f64,
+}
+
+impl MatchedFilterResponse {
+
+	pub fn test_stat_at_idx(&self, k:usize) -> f64 {
+		self.correlation_time_domain[k].norm_sqr() / (self.signal_power * self.filter_power)
+	}
+
+	// Useful if you want to use a different signal power for some reason.  For example, signal power might 
+	// change significantly from one window to another and you want to filter it to provide better comparison
+	// between windows
+	pub fn test_stat_at_idx_w_power(&self, k:usize, signal_power:f64) -> f64 {
+		self.correlation_time_domain[k].norm_sqr() / (signal_power * self.filter_power)
+	}
+
+	pub fn best_test_stat(&self) -> (f64, usize) {
+		let mut best = (0.0, 0);
+
+		for (idx, term) in self.correlation_time_domain.iter().enumerate() {
+			let norm_sqr = term.norm_sqr();
+
+			if best.0 < norm_sqr {
+				best = (norm_sqr, idx);
+			}
+		}
+
+		let (best_norm_sqr, best_idx) = best;
+		(best_norm_sqr / (self.signal_power * self.filter_power), best_idx)
+	}
+
+}
